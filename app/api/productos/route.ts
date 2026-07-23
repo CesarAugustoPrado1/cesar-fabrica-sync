@@ -3,10 +3,13 @@ import { query } from '@/lib/db';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const erpId = parseInt(params.id);
+    // Esperar a que params se resuelva (Next.js 16+)
+    const { id } = await params;
+    const erpId = parseInt(id);
+
     if (isNaN(erpId)) {
       return NextResponse.json(
         { success: false, error: 'El ID debe ser un número válido' },
@@ -21,7 +24,7 @@ export async function GET(
 
     if (result.rows.length === 0) {
       return NextResponse.json(
-        { success: false, error: 'Producto no encontrado' },
+        { success: false, error: `Producto con erp_id ${erpId} no encontrado` },
         { status: 404 }
       );
     }
