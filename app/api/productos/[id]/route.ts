@@ -16,9 +16,7 @@ export async function GET(
       );
     }
 
-    const result = await sql`
-      SELECT * FROM productos WHERE erp_id = ${erpId}
-    `;
+    const result = await sql`SELECT * FROM productos WHERE erp_id = ${erpId}`;
 
     if (result.length === 0) {
       return NextResponse.json(
