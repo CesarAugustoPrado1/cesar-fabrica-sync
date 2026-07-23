@@ -1,0 +1,19 @@
+name: Sincronizar ERP con Neon
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # Cada 6 horas
+  workflow_dispatch:          # Permite ejecución manual
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - run: npx tsx scripts/sync-erp.ts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
