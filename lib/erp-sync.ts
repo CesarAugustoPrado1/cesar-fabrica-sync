@@ -36,6 +36,12 @@ function getTextFromNode(node: any, tagName: string): string | null {
   return child || null;
 }
 
+// Extrae el valor de un atributo de un nodo
+function getAttr(node: any, attrName: string): string | null {
+  if (!node || !node.$) return null;
+  return node.$[attrName] || null;
+}
+
 export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
@@ -80,67 +86,43 @@ export async function syncProductos() {
     const result = await parseStringPromise(xmlText, {
       explicitArray: true,
       mergeAttrs: false,
-      ignoreAttrs: true,
+      ignoreAttrs: false,  // Importante: mantener atributos
     });
 
-    // 1. Verificar si hay un soap:Fault
+    // 1. Obtener el Body y buscar ObtenerArticulosResponse sin prefijos
     const envelope = result['soap:Envelope'] || result['Envelope'] || result;
     const body = envelope['soap:Body'] || envelope['Body'] || envelope;
-    const fault = body['soap:Fault'] || body['Fault'] || body['SOAP-ENV:Fault'];
-    if (fault) {
-      const faultCode = getTextFromNode(fault, 'faultcode') || 'desconocido';
-      const faultString = getTextFromNode(fault, 'faultstring') || 'Error sin descripción';
-      throw new Error(`SOAP Fault: ${faultCode} - ${faultString}`);
-    }
 
-    // 2. Buscar ObtenerArticulosResponse (con cualquier prefijo o sin él)
-    const responseNode = body['ObtenerArticulosResponse'] || 
-                         body['tns:ObtenerArticulosResponse'] || 
-                         body['art:ObtenerArticulosResponse'] ||
-                         body['ns1:ObtenerArticulosResponse'] ||  // Variantes comunes
-                         body['ObtenerArticulosResponse']?.['$'] ? body['ObtenerArticulosResponse'] : null;
-
+    // 2. Buscar ObtenerArticulosResponse (sin prefijo)
+    const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'];
     if (!responseNode) {
-      // Mostrar la estructura del body para depuración
-      console.error('❌ Estructura del body:', Object.keys(body).join(', '));
+      // Mostrar las claves disponibles para depuración
+      const keys = Object.keys(body);
+      console.error('❌ Claves disponibles en body:', keys);
       throw new Error('No se encontró ObtenerArticulosResponse en la respuesta');
     }
 
-    // 3. Extraer ObtenerArticulosResult
-    const resultNode = responseNode['ObtenerArticulosResult'] || 
-                       responseNode['tns:ObtenerArticulosResult'] || 
-                       responseNode['art:ObtenerArticulosResult'] ||
-                       responseNode['ns1:ObtenerArticulosResult'];
-
+    // 3. Obtener ObtenerArticulosResult
+    const resultNode = responseNode[0]?.['ObtenerArticulosResult']?.[0];
     if (!resultNode) {
+      console.error('❌ Claves en responseNode:', Object.keys(responseNode[0] || {}));
       throw new Error('No se encontró ObtenerArticulosResult en la respuesta');
     }
 
-    // 4. Buscar <Articulos> dentro de resultNode (con o sin namespace)
-    const articulosNode = resultNode[0]?.['Articulos'] || 
-                          resultNode[0]?.['tns:Articulos'] || 
-                          resultNode[0]?.['art:Articulos'] ||
-                          resultNode[0]?.['ns1:Articulos'] ||
-                          resultNode['Articulos'] ||
-                          resultNode['tns:Articulos'] ||
-                          resultNode['art:Articulos'] ||
-                          resultNode['ns1:Articulos'];
-
+    // 4. Obtener Articulos
+    const articulosNode = resultNode['Articulos']?.[0];
     if (!articulosNode) {
-      throw new Error('No se encontró <Articulos> en la respuesta');
+      console.error('❌ Claves en resultNode:', Object.keys(resultNode));
+      throw new Error('No se encontró Articulos en la respuesta');
     }
 
-    // 5. Extraer los <Articulo> dentro de <Articulos>
-    let articulos = articulosNode['Articulo'] || 
-                    articulosNode['tns:Articulo'] || 
-                    articulosNode['art:Articulo'] ||
-                    articulosNode['ns1:Articulo'];
-
+    // 5. Extraer los artículos (cada uno es un objeto con atributos)
+    let articulos = articulosNode['Articulo'];
     if (!articulos) {
-      throw new Error('No se encontraron <Articulo> dentro de <Articulos>');
+      console.error('❌ Claves en articulosNode:', Object.keys(articulosNode));
+      throw new Error('No se encontraron nodos Articulo dentro de Articulos');
     }
 
-    // Asegurar que es un array
     if (!Array.isArray(articulos)) {
       articulos = [articulos];
     }
@@ -153,15 +135,15 @@ export async function syncProductos() {
 
     for (const item of articulos) {
       try {
-        // Extraer valores
-        const articuloid = parseInt(getTextFromNode(item, 'ArticuloID') || '0');
-        const nombre = getTextFromNode(item, 'Nombre');
-        const descripcion = getTextFromNode(item, 'Descripcion');
-        const unidadmedidastock = getTextFromNode(item, 'UnidadDeMedidaDeStock');
-        const sevende = parseBooleano(getTextFromNode(item, 'SeVende'));
-        const secompra = parseBooleano(getTextFromNode(item, 'SeCompra'));
-        const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta'));
-        const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion'));
+        // Extraer valores desde ATRIBUTOS (no desde elementos hijos)
+        const articuloid = parseInt(getAttr(item, 'ArticuloID') || '0');
+        const nombre = getAttr(item, 'Nombre');
+        const descripcion = getAttr(item, 'Descripcion');
+        const unidadmedidastock = getAttr(item, 'UnidadDeMedidaDeStock');
+        const sevende = parseBooleano(getAttr(item, 'SeVende'));
+        const secompra = parseBooleano(getAttr(item, 'SeCompra'));
+        const fechadealta = parseFecha(getAttr(item, 'FechaDeAlta'));
+        const fechaultactualizacion = parseFecha(getAttr(item, 'FechaUltActualizacion'));
 
         // Insertar o actualizar
         const query = `
