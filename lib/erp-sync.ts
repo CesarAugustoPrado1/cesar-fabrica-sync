@@ -4,7 +4,7 @@ import { parseStringPromise } from 'xml2js';
 // ========== ATRIBUTOS DE PRODUCTOS ==========
 const atributosProductos = [
   'ArticuloID', 'Nombre', 'Descripcion', 'UnidadDeMedidaDeStock',
-  'SeVende', 'SeCompra', 'FechaDeAlta', 'FechaUltActualizacion',
+  'FechaDeAlta', 'FechaUltActualizacion',
   'Clasificacion1Articulos', 'Clasificacion2Articulos', 'Clasificacion3Articulos',
   'Clasificacion4Articulos', 'Clasificacion5Articulos', 'Clasificacion6Articulos',
   'Clasificacion7Articulos', 'Clasificacion8Articulos', 'Clasificacion9Articulos',
@@ -67,6 +67,12 @@ function parseBooleano(valor: string | null): boolean | null {
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
+function parseNumero(valor: string | null): number | null {
+  if (!valor) return null;
+  const num = parseFloat(valor.replace(',', '.'));
+  return isNaN(num) ? null : num;
+}
+
 function getAttr(node: any, attrName: string): string | null {
   if (!node || !node.$) return null;
   return node.$[attrName] || null;
@@ -114,89 +120,92 @@ export async function syncProductos() {
     url: SOAP_URL_PRODUCTOS,
     atributos: atributosProductos,
     soapAction: 'ObtenerArticulos',
+    namespace: 'http://plataforma.net.ar/',
+    soapActionUrl: 'http://plataforma.net.ar/ObtenerArticulos',
     nodoItem: 'Articulo',
     idAttr: 'ArticuloID',
     tabla: 'productos',
     idCol: 'articuloid',
-    mapear: (item: any) => ({
-      articuloid: parseInt(getAttr(item, 'ArticuloID') || '0'),
-      nombre: getAttr(item, 'Nombre'),
-      descripcion: getAttr(item, 'Descripcion'),
-      unidadmedidastock: getAttr(item, 'UnidadDeMedidaDeStock'),
-      sevende: parseBooleano(getAttr(item, 'SeVende')),
-      secompra: parseBooleano(getAttr(item, 'SeCompra')),
-      fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
-      fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
-      clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
-      clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
-      clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
-      clasificacion4articulos: getAttr(item, 'Clasificacion4Articulos'),
-      clasificacion5articulos: getAttr(item, 'Clasificacion5Articulos'),
-      clasificacion6articulos: getAttr(item, 'Clasificacion6Articulos'),
-      clasificacion7articulos: getAttr(item, 'Clasificacion7Articulos'),
-      clasificacion8articulos: getAttr(item, 'Clasificacion8Articulos'),
-      clasificacion9articulos: getAttr(item, 'Clasificacion9Articulos'),
-      clasificacion10articulos: getAttr(item, 'Clasificacion10Articulos'),
-      clasificacion11articulos: getAttr(item, 'Clasificacion11Articulos'),
-      clasificacion12articulos: getAttr(item, 'Clasificacion12Articulos'),
-      clasificacion13articulos: getAttr(item, 'Clasificacion13Articulos'),
-      clasificacion14articulos: getAttr(item, 'Clasificacion14Articulos'),
-      clasificacion15articulos: getAttr(item, 'Clasificacion15Articulos'),
-      clasificacion16articulos: getAttr(item, 'Clasificacion16Articulos'),
-      clasificacion1articulosnombre: getAttr(item, 'Clasificacion1ArticulosNombre'),
-      clasificacion2articulosnombre: getAttr(item, 'Clasificacion2ArticulosNombre'),
-      clasificacion3articulosnombre: getAttr(item, 'Clasificacion3ArticulosNombre'),
-      clasificacion4articulosnombre: getAttr(item, 'Clasificacion4ArticulosNombre'),
-      clasificacion5articulosnombre: getAttr(item, 'Clasificacion5ArticulosNombre'),
-      clasificacion6articulosnombre: getAttr(item, 'Clasificacion6ArticulosNombre'),
-      clasificacion7articulosnombre: getAttr(item, 'Clasificacion7ArticulosNombre'),
-      clasificacion8articulosnombre: getAttr(item, 'Clasificacion8ArticulosNombre'),
-      clasificacion9articulosnombre: getAttr(item, 'Clasificacion9ArticulosNombre'),
-      clasificacion10articulosnombre: getAttr(item, 'Clasificacion10ArticulosNombre'),
-      clasificacion11articulosnombre: getAttr(item, 'Clasificacion11ArticulosNombre'),
-      clasificacion12articulosnombre: getAttr(item, 'Clasificacion12ArticulosNombre'),
-      clasificacion13articulosnombre: getAttr(item, 'Clasificacion13ArticulosNombre'),
-      clasificacion14articulosnombre: getAttr(item, 'Clasificacion14ArticulosNombre'),
-      clasificacion15articulosnombre: getAttr(item, 'Clasificacion15ArticulosNombre'),
-      clasificacion16articulosnombre: getAttr(item, 'Clasificacion16ArticulosNombre'),
-      secontrolastock: parseBooleano(getAttr(item, 'SeControlaStock')),
-      seadministraconpartidas: parseBooleano(getAttr(item, 'SeAdministraConPartidas')),
-      seadministraconnumerosdeserie: parseBooleano(getAttr(item, 'SeAdministraConNumerosDeSerie')),
-      seadministraportalles: parseBooleano(getAttr(item, 'SeAdministraPorTalles')),
-      fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
-      bloqueadoparamovimientosstock: parseBooleano(getAttr(item, 'BloqueadoParaMovimientosDeStock')),
-      generamovimientosstock: parseBooleano(getAttr(item, 'GeneraMovimientosDeStock')),
-      pesoembaladounidadmedidastock: parseFloat(getAttr(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock') || '0'),
-      cantidadunidadmedidastockbulto: parseFloat(getAttr(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto') || '0'),
-      unidadmedidahomogeneastock: getAttr(item, 'UnidadDeMedidaHomogeneaDeStock'),
-      factordeconversionunidadmedidahomogeneastock: parseFloat(getAttr(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock') || '0'),
-      cuentadeactivo: getAttr(item, 'CuentaDeActivo'),
-      seproduce: parseBooleano(getAttr(item, 'SeProduce')),
-      mododeconsumodecomponentes: getAttr(item, 'ModoDeConsumoDeComponentes'),
-      modalidadestockminimo: getAttr(item, 'ModalidadDeStockMinimo'),
-      stockminimoparamodalidadcantidadfija: parseFloat(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija') || '0'),
-      administrapreciopromedioponderado: parseBooleano(getAttr(item, 'AdministraPrecioPromedioPonderado')),
-      ajustacantidadesumstockcalculadasporsistema: parseBooleano(getAttr(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
-      porcentajemaximoajustecantidadumstock: parseFloat(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock') || '0'),
-      secosteaporcierremensual: parseBooleano(getAttr(item, 'SeCosteaPorCierreMensual')),
-      talle: getAttr(item, 'Talle'),
-      color: getAttr(item, 'Color'),
-      divisionparaasientodecosteoporcierre: getAttr(item, 'DivisionParaAsientoDeCosteoPorCierre'),
-      especiedegranooncca: getAttr(item, 'EspecieDeGranoONCCA'),
-      tipodegranooncca: getAttr(item, 'TipoDeGranoONCCA'),
-      variedaddedegrano: getAttr(item, 'VariedadDeGrano'),
-      cuentadeanticipoliquidacioncompracereal: getAttr(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
-      codigodeproductocot: getAttr(item, 'CodigoDeProductoCOT'),
-      unidadmedidacot: getAttr(item, 'UnidadDeMedidaCOT'),
-      factordeconversioncot: parseFloat(getAttr(item, 'FactorDeConversionCOT') || '0'),
-      volumenembaladounidadmedidastock: parseFloat(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock') || '0'),
-      unidadmedidaparadimensionesarticulo: getAttr(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
-      largo: parseFloat(getAttr(item, 'Largo') || '0'),
-      ancho: parseFloat(getAttr(item, 'Ancho') || '0'),
-      alto: parseFloat(getAttr(item, 'Alto') || '0'),
-      bloqueadoparaventa: parseBooleano(getAttr(item, 'BloqueadoParaVenta')),
-      fechadebajaparaventas: parseFecha(getAttr(item, 'FechaDeBajaParaVentas')),
-    })
+    mapear: (item: any) => {
+      // Solo mapeamos columnas que existen en la tabla
+      return {
+        articuloid: parseInt(getAttr(item, 'ArticuloID') || '0'),
+        nombre: getAttr(item, 'Nombre'),
+        descripcion: getAttr(item, 'Descripcion'),
+        unidadmedidastock: getAttr(item, 'UnidadDeMedidaDeStock'),
+        fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
+        fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
+        clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
+        clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
+        clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
+        clasificacion4articulos: getAttr(item, 'Clasificacion4Articulos'),
+        clasificacion5articulos: getAttr(item, 'Clasificacion5Articulos'),
+        clasificacion6articulos: getAttr(item, 'Clasificacion6Articulos'),
+        clasificacion7articulos: getAttr(item, 'Clasificacion7Articulos'),
+        clasificacion8articulos: getAttr(item, 'Clasificacion8Articulos'),
+        clasificacion9articulos: getAttr(item, 'Clasificacion9Articulos'),
+        clasificacion10articulos: getAttr(item, 'Clasificacion10Articulos'),
+        clasificacion11articulos: getAttr(item, 'Clasificacion11Articulos'),
+        clasificacion12articulos: getAttr(item, 'Clasificacion12Articulos'),
+        clasificacion13articulos: getAttr(item, 'Clasificacion13Articulos'),
+        clasificacion14articulos: getAttr(item, 'Clasificacion14Articulos'),
+        clasificacion15articulos: getAttr(item, 'Clasificacion15Articulos'),
+        clasificacion16articulos: getAttr(item, 'Clasificacion16Articulos'),
+        clasificacion1articulosnombre: getAttr(item, 'Clasificacion1ArticulosNombre'),
+        clasificacion2articulosnombre: getAttr(item, 'Clasificacion2ArticulosNombre'),
+        clasificacion3articulosnombre: getAttr(item, 'Clasificacion3ArticulosNombre'),
+        clasificacion4articulosnombre: getAttr(item, 'Clasificacion4ArticulosNombre'),
+        clasificacion5articulosnombre: getAttr(item, 'Clasificacion5ArticulosNombre'),
+        clasificacion6articulosnombre: getAttr(item, 'Clasificacion6ArticulosNombre'),
+        clasificacion7articulosnombre: getAttr(item, 'Clasificacion7ArticulosNombre'),
+        clasificacion8articulosnombre: getAttr(item, 'Clasificacion8ArticulosNombre'),
+        clasificacion9articulosnombre: getAttr(item, 'Clasificacion9ArticulosNombre'),
+        clasificacion10articulosnombre: getAttr(item, 'Clasificacion10ArticulosNombre'),
+        clasificacion11articulosnombre: getAttr(item, 'Clasificacion11ArticulosNombre'),
+        clasificacion12articulosnombre: getAttr(item, 'Clasificacion12ArticulosNombre'),
+        clasificacion13articulosnombre: getAttr(item, 'Clasificacion13ArticulosNombre'),
+        clasificacion14articulosnombre: getAttr(item, 'Clasificacion14ArticulosNombre'),
+        clasificacion15articulosnombre: getAttr(item, 'Clasificacion15ArticulosNombre'),
+        clasificacion16articulosnombre: getAttr(item, 'Clasificacion16ArticulosNombre'),
+        secontrolastock: parseBooleano(getAttr(item, 'SeControlaStock')),
+        seadministraconpartidas: parseBooleano(getAttr(item, 'SeAdministraConPartidas')),
+        seadministraconnumerosdeserie: parseBooleano(getAttr(item, 'SeAdministraConNumerosDeSerie')),
+        seadministraportalles: parseBooleano(getAttr(item, 'SeAdministraPorTalles')),
+        fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
+        bloqueadoparamovimientosstock: parseBooleano(getAttr(item, 'BloqueadoParaMovimientosDeStock')),
+        generamovimientosstock: parseBooleano(getAttr(item, 'GeneraMovimientosDeStock')),
+        pesoembaladounidadmedidastock: parseNumero(getAttr(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock')),
+        cantidadunidadmedidastockbulto: parseNumero(getAttr(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto')),
+        unidadmedidahomogeneastock: getAttr(item, 'UnidadDeMedidaHomogeneaDeStock'),
+        factordeconversionunidadmedidahomogeneastock: parseNumero(getAttr(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock')),
+        cuentadeactivo: getAttr(item, 'CuentaDeActivo'),
+        seproduce: parseBooleano(getAttr(item, 'SeProduce')),
+        mododeconsumodecomponentes: getAttr(item, 'ModoDeConsumoDeComponentes'),
+        modalidadestockminimo: getAttr(item, 'ModalidadDeStockMinimo'),
+        stockminimoparamodalidadcantidadfija: parseNumero(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija')),
+        administrapreciopromedioponderado: parseBooleano(getAttr(item, 'AdministraPrecioPromedioPonderado')),
+        ajustacantidadesumstockcalculadasporsistema: parseBooleano(getAttr(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
+        porcentajemaximoajustecantidadumstock: parseNumero(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock')),
+        secosteaporcierremensual: parseBooleano(getAttr(item, 'SeCosteaPorCierreMensual')),
+        talle: getAttr(item, 'Talle'),
+        color: getAttr(item, 'Color'),
+        divisionparaasientodecosteoporcierre: getAttr(item, 'DivisionParaAsientoDeCosteoPorCierre'),
+        especiedegranooncca: getAttr(item, 'EspecieDeGranoONCCA'),
+        tipodegranooncca: getAttr(item, 'TipoDeGranoONCCA'),
+        variedaddedegrano: getAttr(item, 'VariedadDeGrano'),
+        cuentadeanticipoliquidacioncompracereal: getAttr(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
+        codigodeproductocot: getAttr(item, 'CodigoDeProductoCOT'),
+        unidadmedidacot: getAttr(item, 'UnidadDeMedidaCOT'),
+        factordeconversioncot: parseNumero(getAttr(item, 'FactorDeConversionCOT')),
+        volumenembaladounidadmedidastock: parseNumero(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock')),
+        unidadmedidaparadimensionesarticulo: getAttr(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
+        largo: parseNumero(getAttr(item, 'Largo')),
+        ancho: parseNumero(getAttr(item, 'Ancho')),
+        alto: parseNumero(getAttr(item, 'Alto')),
+        bloqueadoparaventa: parseBooleano(getAttr(item, 'BloqueadoParaVenta')),
+        fechadebajaparaventas: parseFecha(getAttr(item, 'FechaDeBajaParaVentas')),
+      };
+    }
   });
 }
 
@@ -208,6 +217,8 @@ export async function syncClientes() {
     url: SOAP_URL_CLIENTES,
     atributos: atributosClientes,
     soapAction: 'ObtenerClientes',
+    namespace: 'http://wsplataforma.intecsoft.com.ar/',
+    soapActionUrl: 'http://wsplataforma.intecsoft.com.ar/ObtenerClientes',
     nodoItem: 'Cliente',
     idAttr: 'ClienteID',
     tabla: 'clientes',
@@ -266,6 +277,8 @@ async function syncGenerico({
   url,
   atributos,
   soapAction,
+  namespace,
+  soapActionUrl,
   nodoItem,
   idAttr,
   tabla,
@@ -276,6 +289,8 @@ async function syncGenerico({
   url: string;
   atributos: string[];
   soapAction: string;
+  namespace: string;
+  soapActionUrl: string;
   nodoItem: string;
   idAttr: string;
   tabla: string;
@@ -287,28 +302,28 @@ async function syncGenerico({
       `<${nodoItem}Atributos>${attr}</${nodoItem}Atributos>`
     ).join('');
 
-    // ⚠️ CORREGIDO: usar solo soapAction, sin "Obtener" extra
+    // Usamos el namespace correcto para cada servicio
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:art="http://plataforma.net.ar/">
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
+               xmlns:ns="${namespace}">
   <soap:Body>
-    <art:${soapAction}>
-      <art:AtributosVisibles>
+    <ns:${soapAction}>
+      <ns:AtributosVisibles>
         ${atributosXML}
-      </art:AtributosVisibles>
-      <art:Filtros />
-    </art:${soapAction}>
+      </ns:AtributosVisibles>
+      <ns:Filtros />
+    </ns:${soapAction}>
   </soap:Body>
 </soap:Envelope>`;
 
     console.log(`📤 Enviando solicitud SOAP para ${nombre}...`);
-    console.log(`🔹 SOAPAction: http://plataforma.net.ar/${soapAction}`);
+    console.log(`🔹 SOAPAction: ${soapActionUrl}`);
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        // ⚠️ CORREGIDO: usar solo soapAction
-        'SOAPAction': `http://plataforma.net.ar/${soapAction}`,
+        'SOAPAction': soapActionUrl,
       },
       body: soapEnvelope,
     });
