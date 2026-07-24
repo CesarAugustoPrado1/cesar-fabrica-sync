@@ -27,30 +27,13 @@ function parseBooleano(valor: string | null): boolean | null {
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
-// Obtener valor de un nodo o atributo
-function getValueFromNode(node: any, tagName: string, attrName?: string): string | null {
+function getTextFromNode(node: any, tagName: string): string | null {
   if (!node) return null;
-  // Si es un objeto y tiene el atributo, devolverlo
-  if (attrName && node.$ && node.$[attrName] !== undefined) {
-    return node.$[attrName];
+  const child = node[tagName];
+  if (Array.isArray(child) && child.length > 0) {
+    return child[0] || null;
   }
-  // Si tiene hijos, buscar el tagName
-  if (node[tagName]) {
-    const child = node[tagName];
-    if (Array.isArray(child) && child.length > 0) {
-      // Si el hijo tiene un atributo, devolverlo
-      if (child[0].$ && child[0].$[attrName || '']) {
-        return child[0].$[attrName || ''];
-      }
-      // Si el hijo tiene texto
-      if (child[0]._ !== undefined) {
-        return child[0]._;
-      }
-      return child[0] || null;
-    }
-    return child || null;
-  }
-  return null;
+  return child || null;
 }
 
 export async function syncProductos() {
@@ -96,8 +79,8 @@ export async function syncProductos() {
     // Parsear el XML
     const result = await parseStringPromise(xmlText, {
       explicitArray: true,
-      mergeAttrs: true,    // Para fusionar atributos en el objeto
-      ignoreAttrs: false,  // Para mantener atributos en $
+      mergeAttrs: false,
+      ignoreAttrs: true,
     });
 
     // 1. Verificar si hay un soap:Fault
@@ -105,46 +88,59 @@ export async function syncProductos() {
     const body = envelope['soap:Body'] || envelope['Body'] || envelope;
     const fault = body['soap:Fault'] || body['Fault'] || body['SOAP-ENV:Fault'];
     if (fault) {
-      const faultCode = fault['faultcode']?.[0] || 'desconocido';
-      const faultString = fault['faultstring']?.[0] || 'Error sin descripción';
+      const faultCode = getTextFromNode(fault, 'faultcode') || 'desconocido';
+      const faultString = getTextFromNode(fault, 'faultstring') || 'Error sin descripción';
       throw new Error(`SOAP Fault: ${faultCode} - ${faultString}`);
     }
 
-    // 2. Buscar ObtenerArticulosResponse (puede tener namespace)
-    const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body['art:ObtenerArticulosResponse'];
+    // 2. Buscar ObtenerArticulosResponse (con cualquier prefijo o sin él)
+    const responseNode = body['ObtenerArticulosResponse'] || 
+                         body['tns:ObtenerArticulosResponse'] || 
+                         body['art:ObtenerArticulosResponse'] ||
+                         body['ns1:ObtenerArticulosResponse'] ||  // Variantes comunes
+                         body['ObtenerArticulosResponse']?.['$'] ? body['ObtenerArticulosResponse'] : null;
+
     if (!responseNode) {
+      // Mostrar la estructura del body para depuración
+      console.error('❌ Estructura del body:', Object.keys(body).join(', '));
       throw new Error('No se encontró ObtenerArticulosResponse en la respuesta');
     }
 
-    // Obtener el resultado
-    const resultNode = responseNode[0]?.['ObtenerArticulosResult']?.[0] || responseNode[0]?.['tns:ObtenerArticulosResult']?.[0];
+    // 3. Extraer ObtenerArticulosResult
+    const resultNode = responseNode['ObtenerArticulosResult'] || 
+                       responseNode['tns:ObtenerArticulosResult'] || 
+                       responseNode['art:ObtenerArticulosResult'] ||
+                       responseNode['ns1:ObtenerArticulosResult'];
+
     if (!resultNode) {
       throw new Error('No se encontró ObtenerArticulosResult en la respuesta');
     }
 
-    // Buscar Articulos (sin namespace, ya que viene con xmlns="")
-    let articulosNode = resultNode['Articulos'] || resultNode['tns:Articulos'] || resultNode['art:Articulos'];
+    // 4. Buscar <Articulos> dentro de resultNode (con o sin namespace)
+    const articulosNode = resultNode[0]?.['Articulos'] || 
+                          resultNode[0]?.['tns:Articulos'] || 
+                          resultNode[0]?.['art:Articulos'] ||
+                          resultNode[0]?.['ns1:Articulos'] ||
+                          resultNode['Articulos'] ||
+                          resultNode['tns:Articulos'] ||
+                          resultNode['art:Articulos'] ||
+                          resultNode['ns1:Articulos'];
+
     if (!articulosNode) {
-      // Si no hay Articulos, buscar Table (estructura alternativa)
-      const tableNode = resultNode['Table'] || resultNode['tns:Table'] || resultNode['art:Table'];
-      if (tableNode) {
-        articulosNode = { 'Articulo': tableNode };
-      } else {
-        throw new Error('No se encontró el nodo Articulos en la respuesta');
-      }
+      throw new Error('No se encontró <Articulos> en la respuesta');
     }
 
-    // Extraer los artículos
-    let articulos = articulosNode[0]?.['Articulo'] || articulosNode[0]?.['tns:Articulo'] || articulosNode[0]?.['art:Articulo'];
-    if (!articulos) {
-      // Si no hay Articulo, intentar usar el propio nodo como lista
-      articulos = articulosNode[0] || articulosNode;
-    }
+    // 5. Extraer los <Articulo> dentro de <Articulos>
+    let articulos = articulosNode['Articulo'] || 
+                    articulosNode['tns:Articulo'] || 
+                    articulosNode['art:Articulo'] ||
+                    articulosNode['ns1:Articulo'];
 
     if (!articulos) {
-      throw new Error('No se encontraron artículos en la respuesta');
+      throw new Error('No se encontraron <Articulo> dentro de <Articulos>');
     }
 
+    // Asegurar que es un array
     if (!Array.isArray(articulos)) {
       articulos = [articulos];
     }
@@ -157,51 +153,15 @@ export async function syncProductos() {
 
     for (const item of articulos) {
       try {
-        // Extraer valores (como atributo o como hijo)
-        const articuloid = parseInt(
-          (item.$ && item.$.ArticuloID) || 
-          getValueFromNode(item, 'ArticuloID') || 
-          '0'
-        );
-        
-        const nombre = 
-          (item.$ && item.$.Nombre) || 
-          getValueFromNode(item, 'Nombre') || 
-          null;
-        
-        const descripcion = 
-          (item.$ && item.$.Descripcion) || 
-          getValueFromNode(item, 'Descripcion') || 
-          null;
-        
-        const unidadmedidastock = 
-          (item.$ && item.$.UnidadDeMedidaDeStock) || 
-          getValueFromNode(item, 'UnidadDeMedidaDeStock') || 
-          null;
-        
-        const sevende = parseBooleano(
-          (item.$ && item.$.SeVende) || 
-          getValueFromNode(item, 'SeVende') || 
-          null
-        );
-        
-        const secompra = parseBooleano(
-          (item.$ && item.$.SeCompra) || 
-          getValueFromNode(item, 'SeCompra') || 
-          null
-        );
-        
-        const fechadealta = parseFecha(
-          (item.$ && item.$.FechaDeAlta) || 
-          getValueFromNode(item, 'FechaDeAlta') || 
-          null
-        );
-        
-        const fechaultactualizacion = parseFecha(
-          (item.$ && item.$.FechaUltActualizacion) || 
-          getValueFromNode(item, 'FechaUltActualizacion') || 
-          null
-        );
+        // Extraer valores
+        const articuloid = parseInt(getTextFromNode(item, 'ArticuloID') || '0');
+        const nombre = getTextFromNode(item, 'Nombre');
+        const descripcion = getTextFromNode(item, 'Descripcion');
+        const unidadmedidastock = getTextFromNode(item, 'UnidadDeMedidaDeStock');
+        const sevende = parseBooleano(getTextFromNode(item, 'SeVende'));
+        const secompra = parseBooleano(getTextFromNode(item, 'SeCompra'));
+        const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta'));
+        const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion'));
 
         // Insertar o actualizar
         const query = `
