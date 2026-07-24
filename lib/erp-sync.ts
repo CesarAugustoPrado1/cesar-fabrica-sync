@@ -1,8 +1,10 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-// Lista completa de atributos (todos los que quieras)
-const atributos = [
+// ============================================================
+// 1. ATRIBUTOS DE PRODUCTOS
+// ============================================================
+const atributosProductos = [
   'ArticuloID',
   'Nombre',
   'Descripcion',
@@ -82,7 +84,161 @@ const atributos = [
   'FechaDeBajaParaVentas'
 ];
 
-const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
+// ============================================================
+// 2. ATRIBUTOS DE CLIENTES (extraídos del WSDL)
+// ============================================================
+const atributosClientes = [
+  'ClienteID',
+  'Nombre',
+  'NombreLegal',
+  'EsClienteGlobal',
+  'Domicilio',
+  'Localidad',
+  'CodigoPostal',
+  'Provincia',
+  'ProvinciaNombre',
+  'Pais',
+  'PaisNombre',
+  'Telefono',
+  'Fax',
+  'Email',
+  'Observacion',
+  'CodigoDeProveedorParaElCliente',
+  'Referencia',
+  'HorarioDeAtencion',
+  'HorarioDeEntrega',
+  'CondicionAnteElIVA',
+  'CondicionAnteElIVANombre',
+  'ClaveTributaria',
+  'IngresosBrutos',
+  'ContactoDeVenta',
+  'ContactoDeCobros',
+  'CondicionPago',
+  'CondicionPagoNombre',
+  'MonedaUsualCuentaCorriente',
+  'MonedaUsualCuentaCorrienteNombre',
+  'CuentaCliente',
+  'TipoDeCliente',
+  'TipoDeClienteNombre',
+  'ActividadDeCliente',
+  'ActividadDeClienteNombre',
+  'Clasificacion1',
+  'Clasificacion1Nombre',
+  'Clasificacion2',
+  'Clasificacion2Nombre',
+  'Clasificacion3',
+  'Clasificacion3Nombre',
+  'Clasificacion4',
+  'Clasificacion4Nombre',
+  'Clasificacion5',
+  'Clasificacion5Nombre',
+  'Clasificacion6',
+  'Clasificacion6Nombre',
+  'Clasificacion7',
+  'Clasificacion7Nombre',
+  'Clasificacion8',
+  'Clasificacion8Nombre',
+  'Clasificacion9',
+  'Clasificacion9Nombre',
+  'Vendedor',
+  'VendedorNombre',
+  'ZonaDeVenta',
+  'ZonaDeVentaNombre',
+  'Cobrador',
+  'CobradorNombre',
+  'Transporte',
+  'TransporteNombre',
+  'BloqueadoParaNotasDePedido',
+  'BloqueadoParaFacturar',
+  'FechaDeAlta',
+  'FechaDeBaja',
+  'HabilitadoParaConsultasWeb',
+  'FormatoDeImpresionPorCliente',
+  'FormatoDeImpresionPorClienteNombre',
+  'Vendedor2',
+  'Vendedor2Nombre',
+  'AtributoString1',
+  'AtributoString2',
+  'AtributoString3',
+  'AtributoString4',
+  'AtributoFecha1',
+  'AtributoFecha2',
+  'AtributoFecha3',
+  'AtributoFecha4',
+  'Clasificacion1PedidosYComprobantesVarios',
+  'Clasificacion1PedidosYComprobantesVariosNombre',
+  'Clasificacion2PedidosYComprobantesVarios',
+  'Clasificacion2PedidosYComprobantesVariosNombre',
+  'Clasificacion3PedidosYComprobantesVarios',
+  'Clasificacion3PedidosYComprobantesVariosNombre',
+  'Clasificacion4PedidosYComprobantesVarios',
+  'Clasificacion4PedidosYComprobantesVariosNombre',
+  'Clasificacion5PedidosYComprobantesVarios',
+  'Clasificacion5PedidosYComprobantesVariosNombre',
+  'Clasificacion6PedidosYComprobantesVarios',
+  'Clasificacion6PedidosYComprobantesVariosNombre',
+  'HabilitadoParaConciliacionConEmpresaCliente',
+  'CodigoDeClienteExterno',
+  'FechaDeProximaGestionDeCobranza',
+  'ProximaGestionDeCobranza',
+  'FormaDeGenerarComprobantesEnElSistemaDeContratos',
+  'NodoOrigen',
+  'NodoOrigenNombre',
+  'Municipio',
+  'MunicipioNombre',
+  'SeConsideraParaTasaDeAbasto',
+  'ControlaElCobroCorrelativoPorVencimiento',
+  'VehiculoPorDefecto',
+  'VehiculoPorDefectoNombre',
+  'Distribuidor',
+  'DistribuidorNombre',
+  'ZonaDeDistribucion',
+  'ZonaDeDistribucionNombre',
+  'Calle',
+  'NumeroCalle',
+  'Piso',
+  'Departamento',
+  'Barrio',
+  'DiasDeGraciaParaElCalculoDeDiasDeAtrasoDeRecibos',
+  'SitioWeb',
+  'DescripcionDeLaActividad',
+  'FacturacionAnualEnMonedaLocal',
+  'CantidadDeEmpleados',
+  'EnvioComprobantesPorMailDireccionDeMail',
+  'EnvioComprobantesPorMailAsuntoDelMail',
+  'EnvioComprobantesPorMailCuerpoDelMail',
+  'ObservacionDeProximaGestionDeCobranza',
+  'CodigoDeCalle',
+  'CodigoDeCalleNombre',
+  'EnvioRecibosDeClientesPorMailDireccionDeMail',
+  'EnvioRecibosDeClientesPorMailAsuntosDelMail',
+  'EnvioRecibosDeClientesPorMailCuerpoDelMail',
+  'TasaMensualParaCalculoDeInteres',
+  'EmailBackup',
+  'PersonaFisica',
+  'PersFisFechaDeNacimiento',
+  'PersFisPaisDeNacimiento',
+  'PersFisPaisDeNacimientoNombre',
+  'PersFisNacionalidad',
+  'PersFisNacionalidadNombre',
+  'PersFisSexo',
+  'PersFisProfesion',
+  'PersFisProfesionNombre',
+  'PersFisTarjetaDeCredito',
+  'PersFisTarjetaDeCreditoNombre',
+  'PersFisFechaDeVencimientoDeTarjetaDeCredito',
+  'PersFisTipoDeDocumento',
+  'PersFisTipoDeDocumentoNombre',
+  'PersFisNumeroDeDocumento',
+  'PersFisNumeroDeTarjetaDeCredito',
+  'FechaUltActualizacion'
+];
+
+// ============================================================
+// 3. FUNCIONES AUXILIARES
+// ============================================================
+const SOAP_URL_PRODUCTOS = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
+const SOAP_URL_CLIENTES = 'http://wspirkastone.pypcloud.net:1881/ServicioCCOCliente.asmx';
 
 function parseFecha(valor: string | null): Date | null {
   if (!valor) return null;
@@ -101,84 +257,120 @@ function getAttr(node: any, attrName: string): string | null {
   return node.$[attrName] || null;
 }
 
-// Busca todos los nodos que tienen un atributo ArticuloID (o que se llamen Articulo)
-function findAllArticulos(obj: any): any[] {
+function findAllNodes(obj: any, nodeName: string): any[] {
   const results: any[] = [];
   if (!obj) return results;
 
   if (Array.isArray(obj)) {
     for (const item of obj) {
-      results.push(...findAllArticulos(item));
+      results.push(...findAllNodes(item, nodeName));
     }
     return results;
   }
 
   if (typeof obj === 'object') {
-    // Si el objeto tiene un atributo ArticuloID, es un artículo
-    if (obj.$ && obj.$['ArticuloID'] !== undefined) {
+    // Si el objeto tiene un atributo que identifica al nodo
+    if (obj.$ && obj.$[`${nodeName}ID`] !== undefined) {
       results.push(obj);
     }
-    // Si el objeto tiene una clave 'Articulo', extraer su valor (puede ser array u objeto)
-    if (obj['Articulo']) {
-      const articulos = Array.isArray(obj['Articulo']) ? obj['Articulo'] : [obj['Articulo']];
-      for (const art of articulos) {
-        if (art.$ && art.$['ArticuloID'] !== undefined) {
-          results.push(art);
+    // Si el objeto tiene una clave con el nombre del nodo
+    if (obj[nodeName]) {
+      const items = Array.isArray(obj[nodeName]) ? obj[nodeName] : [obj[nodeName]];
+      for (const item of items) {
+        if (item.$ && item.$[`${nodeName}ID`] !== undefined) {
+          results.push(item);
         } else {
-          // Si no tiene ArticuloID, buscar recursivamente dentro de art
-          results.push(...findAllArticulos(art));
+          results.push(...findAllNodes(item, nodeName));
         }
       }
     }
     // Buscar recursivamente en todas las propiedades
     for (const key of Object.keys(obj)) {
-      if (key !== 'Articulo' && obj[key] && typeof obj[key] === 'object') {
-        results.push(...findAllArticulos(obj[key]));
+      if (key !== nodeName && obj[key] && typeof obj[key] === 'object') {
+        results.push(...findAllNodes(obj[key], nodeName));
       }
     }
   }
   return results;
 }
 
+// ============================================================
+// 4. SYNC PRODUCTOS (idéntico al que funciona)
+// ============================================================
 export async function syncProductos() {
-  console.log('🔄 Iniciando sincronización de artículos...');
+  console.log('🔄 Iniciando sincronización de productos...');
+  await syncGenerico('productos', 'Articulo', atributosProductos, SOAP_URL_PRODUCTOS, 'ObtenerArticulos');
+}
 
+// ============================================================
+// 5. SYNC CLIENTES (idéntico a syncProductos pero con clientes)
+// ============================================================
+export async function syncClientes() {
+  console.log('🔄 Iniciando sincronización de clientes...');
+  await syncGenerico('clientes', 'Cliente', atributosClientes, SOAP_URL_CLIENTES, 'ObtenerClientes');
+}
+
+// ============================================================
+// 6. FUNCIÓN GENÉRICA DE SINCRONIZACIÓN
+// ============================================================
+async function syncGenerico(
+  tabla: string,
+  nodoRaiz: string,
+  atributos: string[],
+  soapUrl: string,
+  soapAction: string
+) {
   try {
     const atributosXML = atributos.map(attr => 
-      `<ArticuloAtributos>${attr}</ArticuloAtributos>`
+      `<${nodoRaiz}Atributos>${attr}</${nodoRaiz}Atributos>`
     ).join('');
 
+    // Determinar el namespace correcto según el servicio
+    let namespace = 'art';
+    let actionUrl = 'http://plataforma.net.ar/';
+    let filtrosXML = '';
+    
+    if (tabla === 'productos') {
+      namespace = 'art';
+      actionUrl = 'http://plataforma.net.ar/';
+      filtrosXML = `<art:Filtros />`;
+    } else if (tabla === 'clientes') {
+      namespace = 'cli';
+      actionUrl = 'http://wsplataforma.intecsoft.com.ar/';
+      filtrosXML = `<cli:Filtros />`;
+    }
+
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:art="http://plataforma.net.ar/">
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:${namespace}="${actionUrl}">
   <soap:Body>
-    <art:ObtenerArticulos>
-      <art:AtributosVisibles>
+    <${namespace}:${soapAction}>
+      <${namespace}:AtributosVisibles>
         ${atributosXML}
-      </art:AtributosVisibles>
-      <art:Filtros />
-    </art:ObtenerArticulos>
+      </${namespace}:AtributosVisibles>
+      ${filtrosXML}
+    </${namespace}:${soapAction}>
   </soap:Body>
 </soap:Envelope>`;
 
-    console.log('📤 XML enviado:', soapEnvelope);
+    console.log(`📤 XML enviado para ${tabla}:`, soapEnvelope);
 
-    const response = await fetch(SOAP_URL, {
+    const response = await fetch(soapUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': 'http://plataforma.net.ar/ObtenerArticulos',
+        'SOAPAction': `${actionUrl}${soapAction}`,
       },
       body: soapEnvelope,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Cuerpo de la respuesta de error:', errorText);
+      console.error(`❌ Cuerpo de la respuesta de error para ${tabla}:`, errorText);
       throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
     }
 
     const xmlText = await response.text();
-    console.log('✅ Respuesta recibida del ERP');
+    console.log(`✅ Respuesta recibida del ERP para ${tabla}`);
 
     const result = await parseStringPromise(xmlText, {
       explicitArray: false,
@@ -189,137 +381,89 @@ export async function syncProductos() {
       trim: true,
     });
 
-    const articulos = findAllArticulos(result);
+    // Buscar todos los nodos de la raíz (Articulo o Cliente)
+    const items = findAllNodes(result, nodoRaiz);
     
-    if (articulos.length === 0) {
-      console.error('❌ Estructura completa del resultado:', JSON.stringify(result, null, 2));
-      throw new Error('No se encontraron artículos en la respuesta');
+    if (items.length === 0) {
+      console.error(`❌ Estructura completa del resultado para ${tabla}:`, JSON.stringify(result, null, 2));
+      throw new Error(`No se encontraron ${nodoRaiz}s en la respuesta`);
     }
 
-    console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
+    console.log(`📦 ${nodoRaiz}s obtenidos del ERP: ${items.length}`);
 
     let procesados = 0;
     let errores = 0;
 
-    for (const item of articulos) {
+    for (const item of items) {
       try {
-        const articulo = {
-          articuloid: parseInt(getAttr(item, 'ArticuloID') || '0'),
-          nombre: getAttr(item, 'Nombre'),
-          descripcion: getAttr(item, 'Descripcion'),
-          unidadmedidastock: getAttr(item, 'UnidadDeMedidaDeStock'),
-          sevende: parseBooleano(getAttr(item, 'SeVende')),
-          secompra: parseBooleano(getAttr(item, 'SeCompra')),
-          fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
-          fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
-          clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
-          clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
-          clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
-          clasificacion4articulos: getAttr(item, 'Clasificacion4Articulos'),
-          clasificacion5articulos: getAttr(item, 'Clasificacion5Articulos'),
-          clasificacion6articulos: getAttr(item, 'Clasificacion6Articulos'),
-          clasificacion7articulos: getAttr(item, 'Clasificacion7Articulos'),
-          clasificacion8articulos: getAttr(item, 'Clasificacion8Articulos'),
-          clasificacion9articulos: getAttr(item, 'Clasificacion9Articulos'),
-          clasificacion10articulos: getAttr(item, 'Clasificacion10Articulos'),
-          clasificacion11articulos: getAttr(item, 'Clasificacion11Articulos'),
-          clasificacion12articulos: getAttr(item, 'Clasificacion12Articulos'),
-          clasificacion13articulos: getAttr(item, 'Clasificacion13Articulos'),
-          clasificacion14articulos: getAttr(item, 'Clasificacion14Articulos'),
-          clasificacion15articulos: getAttr(item, 'Clasificacion15Articulos'),
-          clasificacion16articulos: getAttr(item, 'Clasificacion16Articulos'),
-          clasificacion1articulosnombre: getAttr(item, 'Clasificacion1ArticulosNombre'),
-          clasificacion2articulosnombre: getAttr(item, 'Clasificacion2ArticulosNombre'),
-          clasificacion3articulosnombre: getAttr(item, 'Clasificacion3ArticulosNombre'),
-          clasificacion4articulosnombre: getAttr(item, 'Clasificacion4ArticulosNombre'),
-          clasificacion5articulosnombre: getAttr(item, 'Clasificacion5ArticulosNombre'),
-          clasificacion6articulosnombre: getAttr(item, 'Clasificacion6ArticulosNombre'),
-          clasificacion7articulosnombre: getAttr(item, 'Clasificacion7ArticulosNombre'),
-          clasificacion8articulosnombre: getAttr(item, 'Clasificacion8ArticulosNombre'),
-          clasificacion9articulosnombre: getAttr(item, 'Clasificacion9ArticulosNombre'),
-          clasificacion10articulosnombre: getAttr(item, 'Clasificacion10ArticulosNombre'),
-          clasificacion11articulosnombre: getAttr(item, 'Clasificacion11ArticulosNombre'),
-          clasificacion12articulosnombre: getAttr(item, 'Clasificacion12ArticulosNombre'),
-          clasificacion13articulosnombre: getAttr(item, 'Clasificacion13ArticulosNombre'),
-          clasificacion14articulosnombre: getAttr(item, 'Clasificacion14ArticulosNombre'),
-          clasificacion15articulosnombre: getAttr(item, 'Clasificacion15ArticulosNombre'),
-          clasificacion16articulosnombre: getAttr(item, 'Clasificacion16ArticulosNombre'),
-          secontrolastock: parseBooleano(getAttr(item, 'SeControlaStock')),
-          seadministraconpartidas: parseBooleano(getAttr(item, 'SeAdministraConPartidas')),
-          seadministraconnumerosdeserie: parseBooleano(getAttr(item, 'SeAdministraConNumerosDeSerie')),
-          seadministraportalles: parseBooleano(getAttr(item, 'SeAdministraPorTalles')),
-          fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
-          bloqueadoparamovimientosstock: parseBooleano(getAttr(item, 'BloqueadoParaMovimientosDeStock')),
-          generamovimientosstock: parseBooleano(getAttr(item, 'GeneraMovimientosDeStock')),
-          pesoembaladounidadmedidastock: parseFloat(getAttr(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock') || '0'),
-          cantidadunidadmedidastockbulto: parseFloat(getAttr(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto') || '0'),
-          unidadmedidahomogeneastock: getAttr(item, 'UnidadDeMedidaHomogeneaDeStock'),
-          factordeconversionunidadmedidahomogeneastock: parseFloat(getAttr(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock') || '0'),
-          cuentadeactivo: getAttr(item, 'CuentaDeActivo'),
-          seproduce: parseBooleano(getAttr(item, 'SeProduce')),
-          mododeconsumodecomponentes: getAttr(item, 'ModoDeConsumoDeComponentes'),
-          modalidadestockminimo: getAttr(item, 'ModalidadDeStockMinimo'),
-          stockminimoparamodalidadcantidadfija: parseFloat(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija') || '0'),
-          administrapreciopromedioponderado: parseBooleano(getAttr(item, 'AdministraPrecioPromedioPonderado')),
-          ajustacantidadesumstockcalculadasporsistema: parseBooleano(getAttr(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
-          porcentajemaximoajustecantidadumstock: parseFloat(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock') || '0'),
-          secosteaporcierremensual: parseBooleano(getAttr(item, 'SeCosteaPorCierreMensual')),
-          talle: getAttr(item, 'Talle'),
-          color: getAttr(item, 'Color'),
-          divisionparaasientodecosteoporcierre: getAttr(item, 'DivisionParaAsientoDeCosteoPorCierre'),
-          especiedegranooncca: getAttr(item, 'EspecieDeGranoONCCA'),
-          tipodegranooncca: getAttr(item, 'TipoDeGranoONCCA'),
-          variedaddedegrano: getAttr(item, 'VariedadDeGrano'),
-          cuentadeanticipoliquidacioncompracereal: getAttr(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
-          codigodeproductocot: getAttr(item, 'CodigoDeProductoCOT'),
-          unidadmedidacot: getAttr(item, 'UnidadDeMedidaCOT'),
-          factordeconversioncot: parseFloat(getAttr(item, 'FactorDeConversionCOT') || '0'),
-          volumenembaladounidadmedidastock: parseFloat(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock') || '0'),
-          unidadmedidaparadimensionesarticulo: getAttr(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
-          largo: parseFloat(getAttr(item, 'Largo') || '0'),
-          ancho: parseFloat(getAttr(item, 'Ancho') || '0'),
-          alto: parseFloat(getAttr(item, 'Alto') || '0'),
-          bloqueadoparaventa: parseBooleano(getAttr(item, 'BloqueadoParaVenta')),
-          fechadebajaparaventas: parseFecha(getAttr(item, 'FechaDeBajaParaVentas')),
-        };
+        const registro: any = {};
+        
+        // Extraer todos los atributos del nodo
+        for (const attr of atributos) {
+          const key = attr.toLowerCase();
+          const value = getAttr(item, attr);
+          
+          // Convertir según el tipo de dato
+          if (key.includes('fecha') || key.includes('date')) {
+            registro[key] = parseFecha(value);
+          } else if (key.includes('bloqueado') || key.includes('habilitado') || key.includes('controla') || 
+                     key.includes('administra') || key.includes('se') || key.includes('es')) {
+            registro[key] = parseBooleano(value);
+          } else if (key.includes('numero') || key.includes('cantidad') || key.includes('factor') || 
+                     key.includes('monto') || key.includes('porcentaje') || key.includes('tasa')) {
+            registro[key] = value ? parseFloat(value) : null;
+          } else {
+            registro[key] = value || null;
+          }
+        }
 
-        const columns = Object.keys(articulo);
+        // Agregar campo obligatorio según la tabla
+        if (tabla === 'productos') {
+          registro.articuloid = parseInt(registro.articuloid || '0');
+        } else if (tabla === 'clientes') {
+          registro.clienteid = parseInt(registro.clienteid || '0');
+        }
+
+        const columns = Object.keys(registro);
         const values = columns.map((_, i) => `$${i + 1}`).join(', ');
         const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
 
         const query = `
-          INSERT INTO productos (${columns.join(', ')})
+          INSERT INTO ${tabla} (${columns.join(', ')})
           VALUES (${values})
-          ON CONFLICT (articuloid) DO UPDATE SET
+          ON CONFLICT (${tabla === 'productos' ? 'articuloid' : 'clienteid'}) DO UPDATE SET
             ${updateSet},
             ultima_sincronizacion = CURRENT_TIMESTAMP
         `;
 
-        // ✅ CORREGIDO: usar sql.query en lugar de sql()
-        await sql.query(query, Object.values(articulo));
+        await sql.query(query, Object.values(registro));
 
         procesados++;
         if (procesados % 100 === 0) {
-          console.log(`📊 Procesados ${procesados} artículos...`);
+          console.log(`📊 Procesados ${procesados} ${nodoRaiz}s...`);
         }
 
       } catch (error) {
         errores++;
-        console.error(`❌ Error procesando artículo:`, error);
+        console.error(`❌ Error procesando ${nodoRaiz}:`, error);
       }
     }
 
-    console.log(`📊 Resumen:`);
+    console.log(`📊 Resumen para ${tabla}:`);
     console.log(`   Procesados: ${procesados}`);
     console.log(`   Errores: ${errores}`);
-    console.log('✅ Sincronización completada');
+    console.log(`✅ Sincronización de ${tabla} completada`);
 
   } catch (error) {
-    console.error('❌ Error en syncProductos:', error);
+    console.error(`❌ Error en sync de ${tabla}:`, error);
     throw error;
   }
 }
 
+// ============================================================
+// 7. FUNCIÓN PRINCIPAL
+// ============================================================
 export async function syncAll() {
   await syncProductos();
+  await syncClientes();
 }
