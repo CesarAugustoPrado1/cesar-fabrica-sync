@@ -27,20 +27,28 @@ function parseBooleano(valor: string | null): boolean | null {
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
-function getTextFromNode(node: any, tagName: string): string | null {
+// Obtener valor de un nodo o atributo
+function getValueFromNode(node: any, tagName: string, attrName?: string): string | null {
   if (!node) return null;
-  const child = node[tagName];
-  if (Array.isArray(child) && child.length > 0) {
-    return child[0] || null;
+  // Si es un objeto y tiene el atributo, devolverlo
+  if (attrName && node.$ && node.$[attrName] !== undefined) {
+    return node.$[attrName];
   }
-  return child || null;
-}
-
-// Función auxiliar para buscar un nodo en un objeto, probando múltiples nombres
-function findNode(obj: any, ...names: string[]): any {
-  if (!obj) return null;
-  for (const name of names) {
-    if (obj[name]) return obj[name];
+  // Si tiene hijos, buscar el tagName
+  if (node[tagName]) {
+    const child = node[tagName];
+    if (Array.isArray(child) && child.length > 0) {
+      // Si el hijo tiene un atributo, devolverlo
+      if (child[0].$ && child[0].$[attrName || '']) {
+        return child[0].$[attrName || ''];
+      }
+      // Si el hijo tiene texto
+      if (child[0]._ !== undefined) {
+        return child[0]._;
+      }
+      return child[0] || null;
+    }
+    return child || null;
   }
   return null;
 }
@@ -88,153 +96,162 @@ export async function syncProductos() {
     // Parsear el XML
     const result = await parseStringPromise(xmlText, {
       explicitArray: true,
-      mergeAttrs: false,
-      ignoreAttrs: true,
+      mergeAttrs: true,    // Para fusionar atributos en el objeto
+      ignoreAttrs: false,  // Para mantener atributos en $
     });
 
     // 1. Verificar si hay un soap:Fault
-    const envelope = findNode(result, 'soap:Envelope', 'Envelope');
-    const body = findNode(envelope, 'soap:Body', 'Body');
-    const fault = findNode(body, 'soap:Fault', 'Fault', 'SOAP-ENV:Fault');
+    const envelope = result['soap:Envelope'] || result['Envelope'] || result;
+    const body = envelope['soap:Body'] || envelope['Body'] || envelope;
+    const fault = body['soap:Fault'] || body['Fault'] || body['SOAP-ENV:Fault'];
     if (fault) {
-      const faultCode = getTextFromNode(fault, 'faultcode') || 'desconocido';
-      const faultString = getTextFromNode(fault, 'faultstring') || 'Error sin descripción';
+      const faultCode = fault['faultcode']?.[0] || 'desconocido';
+      const faultString = fault['faultstring']?.[0] || 'Error sin descripción';
       throw new Error(`SOAP Fault: ${faultCode} - ${faultString}`);
     }
 
-    // 2. Buscar ObtenerArticulosResponse (sin prefijo)
-    let responseNode = findNode(body, 'ObtenerArticulosResponse', 'tns:ObtenerArticulosResponse', 'art:ObtenerArticulosResponse');
+    // 2. Buscar ObtenerArticulosResponse (puede tener namespace)
+    const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body['art:ObtenerArticulosResponse'];
     if (!responseNode) {
-      // Si no hay ObtenerArticulosResponse, buscar directamente en body
-      responseNode = body;
+      throw new Error('No se encontró ObtenerArticulosResponse en la respuesta');
     }
 
-    // 3. Buscar ObtenerArticulosResult (dentro del responseNode)
-    let resultNode = findNode(responseNode, 'ObtenerArticulosResult', 'tns:ObtenerArticulosResult', 'art:ObtenerArticulosResult');
+    // Obtener el resultado
+    const resultNode = responseNode[0]?.['ObtenerArticulosResult']?.[0] || responseNode[0]?.['tns:ObtenerArticulosResult']?.[0];
     if (!resultNode) {
-      // Si no hay Result, buscar directamente en el body (sin envoltura)
-      resultNode = body;
+      throw new Error('No se encontró ObtenerArticulosResult en la respuesta');
     }
 
-    // 4. Buscar Articulos (puede estar en resultNode o directamente)
-    let articulosNode = findNode(resultNode, 'Articulos', 'tns:Articulos', 'art:Articulos');
+    // Buscar Articulos (sin namespace, ya que viene con xmlns="")
+    let articulosNode = resultNode['Articulos'] || resultNode['tns:Articulos'] || resultNode['art:Articulos'];
     if (!articulosNode) {
-      // Si no hay Articulos, buscar en el nivel superior (body)
-      articulosNode = findNode(body, 'Articulos', 'tns:Articulos', 'art:Articulos');
-    }
-
-    let articulos: any[] = [];
-    if (articulosNode) {
-      // Extraer los nodos Articulo
-      let raw = findNode(articulosNode, 'Articulo', 'tns:Articulo', 'art:Articulo');
-      if (raw) {
-        articulos = Array.isArray(raw) ? raw : [raw];
+      // Si no hay Articulos, buscar Table (estructura alternativa)
+      const tableNode = resultNode['Table'] || resultNode['tns:Table'] || resultNode['art:Table'];
+      if (tableNode) {
+        articulosNode = { 'Articulo': tableNode };
+      } else {
+        throw new Error('No se encontró el nodo Articulos en la respuesta');
       }
     }
 
-    // 5. Si no se encontraron Articulos, intentar buscar directamente en el body
-    if (articulos.length === 0) {
-      const raw = findNode(body, 'Articulo', 'tns:Articulo', 'art:Articulo');
-      if (raw) {
-        articulos = Array.isArray(raw) ? raw : [raw];
-      }
+    // Extraer los artículos
+    let articulos = articulosNode[0]?.['Articulo'] || articulosNode[0]?.['tns:Articulo'] || articulosNode[0]?.['art:Articulo'];
+    if (!articulos) {
+      // Si no hay Articulo, intentar usar el propio nodo como lista
+      articulos = articulosNode[0] || articulosNode;
     }
 
-    if (articulos.length === 0) {
-      // Último intento: buscar cualquier nodo que tenga atributo ArticuloID
-      const allKeys = Object.keys(body);
-      for (const key of allKeys) {
-        if (key.toLowerCase().includes('articulo')) {
-          const candidate = body[key];
-          if (Array.isArray(candidate)) {
-            articulos = candidate;
-            break;
-          }
-        }
-      }
-    }
-
-    if (articulos.length === 0) {
-      console.error('📄 Respuesta completa (primeros 500 caracteres):', xmlText.substring(0, 500));
+    if (!articulos) {
       throw new Error('No se encontraron artículos en la respuesta');
     }
 
+    if (!Array.isArray(articulos)) {
+      articulos = [articulos];
+    }
+
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
-    await procesarArticulos(articulos);
+
+    // Procesar los artículos
+    let procesados = 0;
+    let errores = 0;
+
+    for (const item of articulos) {
+      try {
+        // Extraer valores (como atributo o como hijo)
+        const articuloid = parseInt(
+          (item.$ && item.$.ArticuloID) || 
+          getValueFromNode(item, 'ArticuloID') || 
+          '0'
+        );
+        
+        const nombre = 
+          (item.$ && item.$.Nombre) || 
+          getValueFromNode(item, 'Nombre') || 
+          null;
+        
+        const descripcion = 
+          (item.$ && item.$.Descripcion) || 
+          getValueFromNode(item, 'Descripcion') || 
+          null;
+        
+        const unidadmedidastock = 
+          (item.$ && item.$.UnidadDeMedidaDeStock) || 
+          getValueFromNode(item, 'UnidadDeMedidaDeStock') || 
+          null;
+        
+        const sevende = parseBooleano(
+          (item.$ && item.$.SeVende) || 
+          getValueFromNode(item, 'SeVende') || 
+          null
+        );
+        
+        const secompra = parseBooleano(
+          (item.$ && item.$.SeCompra) || 
+          getValueFromNode(item, 'SeCompra') || 
+          null
+        );
+        
+        const fechadealta = parseFecha(
+          (item.$ && item.$.FechaDeAlta) || 
+          getValueFromNode(item, 'FechaDeAlta') || 
+          null
+        );
+        
+        const fechaultactualizacion = parseFecha(
+          (item.$ && item.$.FechaUltActualizacion) || 
+          getValueFromNode(item, 'FechaUltActualizacion') || 
+          null
+        );
+
+        // Insertar o actualizar
+        const query = `
+          INSERT INTO productos (
+            articuloid, nombre, descripcion, unidadmedidastock,
+            sevende, secompra, fechadealta, fechaultactualizacion,
+            ultima_sincronizacion
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+          ON CONFLICT (articuloid) DO UPDATE SET
+            nombre = EXCLUDED.nombre,
+            descripcion = EXCLUDED.descripcion,
+            unidadmedidastock = EXCLUDED.unidadmedidastock,
+            sevende = EXCLUDED.sevende,
+            secompra = EXCLUDED.secompra,
+            fechadealta = EXCLUDED.fechadealta,
+            fechaultactualizacion = EXCLUDED.fechaultactualizacion,
+            ultima_sincronizacion = CURRENT_TIMESTAMP
+        `;
+
+        await sql(query, [
+          articuloid,
+          nombre,
+          descripcion,
+          unidadmedidastock,
+          sevende,
+          secompra,
+          fechadealta,
+          fechaultactualizacion
+        ]);
+
+        procesados++;
+        if (procesados % 100 === 0) {
+          console.log(`📊 Procesados ${procesados} artículos...`);
+        }
+
+      } catch (error) {
+        errores++;
+        console.error(`❌ Error procesando artículo:`, error);
+      }
+    }
+
+    console.log(`📊 Resumen:`);
+    console.log(`   Procesados: ${procesados}`);
+    console.log(`   Errores: ${errores}`);
+    console.log('✅ Sincronización completada');
 
   } catch (error) {
     console.error('❌ Error en syncProductos:', error);
     throw error;
   }
-}
-
-// Función auxiliar para procesar los artículos
-async function procesarArticulos(articulos: any[]) {
-  let procesados = 0;
-  let errores = 0;
-
-  for (const item of articulos) {
-    try {
-      // Ahora los atributos de Articulo pueden estar como elementos o como atributos
-      // Usamos getTextFromNode que busca elementos, y si no, intentamos con atributos
-      let articuloid = parseInt(getTextFromNode(item, 'ArticuloID') || (item['$']?.['ArticuloID']) || '0');
-      if (!articuloid || isNaN(articuloid)) {
-        // Si el ID está en el atributo del nodo raíz
-        articuloid = parseInt(item['$']?.['ArticuloID'] || '0');
-      }
-
-      const nombre = getTextFromNode(item, 'Nombre') || item['$']?.['Nombre'] || null;
-      const descripcion = getTextFromNode(item, 'Descripcion') || item['$']?.['Descripcion'] || null;
-      const unidadmedidastock = getTextFromNode(item, 'UnidadDeMedidaDeStock') || item['$']?.['UnidadDeMedidaDeStock'] || null;
-      const sevende = parseBooleano(getTextFromNode(item, 'SeVende') || item['$']?.['SeVende']);
-      const secompra = parseBooleano(getTextFromNode(item, 'SeCompra') || item['$']?.['SeCompra']);
-      const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta') || item['$']?.['FechaDeAlta']);
-      const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion') || item['$']?.['FechaUltActualizacion']);
-
-      // Insertar o actualizar
-      const query = `
-        INSERT INTO productos (
-          articuloid, nombre, descripcion, unidadmedidastock,
-          sevende, secompra, fechadealta, fechaultactualizacion,
-          ultima_sincronizacion
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-        ON CONFLICT (articuloid) DO UPDATE SET
-          nombre = EXCLUDED.nombre,
-          descripcion = EXCLUDED.descripcion,
-          unidadmedidastock = EXCLUDED.unidadmedidastock,
-          sevende = EXCLUDED.sevende,
-          secompra = EXCLUDED.secompra,
-          fechadealta = EXCLUDED.fechadealta,
-          fechaultactualizacion = EXCLUDED.fechaultactualizacion,
-          ultima_sincronizacion = CURRENT_TIMESTAMP
-      `;
-
-      await sql(query, [
-        articuloid,
-        nombre,
-        descripcion,
-        unidadmedidastock,
-        sevende,
-        secompra,
-        fechadealta,
-        fechaultactualizacion
-      ]);
-
-      procesados++;
-      if (procesados % 100 === 0) {
-        console.log(`📊 Procesados ${procesados} artículos...`);
-      }
-
-    } catch (error) {
-      errores++;
-      console.error(`❌ Error procesando artículo:`, error);
-    }
-  }
-
-  console.log(`📊 Resumen:`);
-  console.log(`   Procesados: ${procesados}`);
-  console.log(`   Errores: ${errores}`);
-  console.log('✅ Sincronización completada');
 }
 
 export async function syncAll() {
