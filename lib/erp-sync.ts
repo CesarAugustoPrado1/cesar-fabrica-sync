@@ -1,7 +1,6 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-// Lista MÍNIMA (la original que funcionaba)
 const atributosMinimos = [
   'ArticuloID',
   'Nombre',
@@ -44,7 +43,7 @@ export async function syncProductos() {
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
-    // Filtro fijo: todos los artículos con ArticuloID > 0
+    // Filtro fijo: todos los artículos con ArticuloID > 0 (SIN NAMESPACE)
     const filtrosXML = `
       <Filtros>
         <Filtro>
@@ -70,7 +69,6 @@ export async function syncProductos() {
       </soap:Envelope>
     `;
 
-    // Log del XML para depuración
     console.log('📤 XML enviado:', soapEnvelope);
 
     console.log('📡 Enviando solicitud SOAP al ERP...');
