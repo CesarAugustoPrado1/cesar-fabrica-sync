@@ -27,16 +27,6 @@ function parseBooleano(valor: string | null): boolean | null {
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
-function getTextFromNode(node: any, tagName: string): string | null {
-  if (!node) return null;
-  const child = node[tagName];
-  if (Array.isArray(child) && child.length > 0) {
-    return child[0] || null;
-  }
-  return child || null;
-}
-
-// Extrae el valor de un atributo de un nodo
 function getAttr(node: any, attrName: string): string | null {
   if (!node || !node.$) return null;
   return node.$[attrName] || null;
@@ -82,42 +72,56 @@ export async function syncProductos() {
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida del ERP');
 
-    // Parsear el XML
+    // Parsear el XML con opciones más flexibles
     const result = await parseStringPromise(xmlText, {
-      explicitArray: true,
+      explicitArray: false,  // Evita arrays innecesarios
       mergeAttrs: false,
-      ignoreAttrs: false,  // Importante: mantener atributos
+      ignoreAttrs: false,
+      attrkey: '$',          // Atributos van en $
+      charkey: '_',          // Texto de nodos va en _
+      trim: true,
     });
 
-    // 1. Obtener el Body y buscar ObtenerArticulosResponse sin prefijos
+    // 1. Obtener el Body
     const envelope = result['soap:Envelope'] || result['Envelope'] || result;
     const body = envelope['soap:Body'] || envelope['Body'] || envelope;
 
-    // 2. Buscar ObtenerArticulosResponse (sin prefijo)
-    const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'];
+    // Si body es un array, tomar el primer elemento
+    const bodyObj = Array.isArray(body) ? body[0] : body;
+
+    // 2. Buscar ObtenerArticulosResponse de forma flexible
+    let responseNode = null;
+    const keys = Object.keys(bodyObj);
+    console.log('🔑 Claves en body:', keys);
+
+    // Buscar cualquier clave que contenga 'ObtenerArticulosResponse'
+    for (const key of keys) {
+      if (key.includes('ObtenerArticulosResponse')) {
+        responseNode = bodyObj[key];
+        break;
+      }
+    }
+
     if (!responseNode) {
-      // Mostrar las claves disponibles para depuración
-      const keys = Object.keys(body);
-      console.error('❌ Claves disponibles en body:', keys);
       throw new Error('No se encontró ObtenerArticulosResponse en la respuesta');
     }
 
     // 3. Obtener ObtenerArticulosResult
-    const resultNode = responseNode[0]?.['ObtenerArticulosResult']?.[0];
+    const resultNode = responseNode['ObtenerArticulosResult'] || responseNode['tns:ObtenerArticulosResult'];
     if (!resultNode) {
-      console.error('❌ Claves en responseNode:', Object.keys(responseNode[0] || {}));
+      console.error('❌ Claves en responseNode:', Object.keys(responseNode));
       throw new Error('No se encontró ObtenerArticulosResult en la respuesta');
     }
 
     // 4. Obtener Articulos
-    const articulosNode = resultNode['Articulos']?.[0];
+    const articulosNode = resultNode['Articulos'] || resultNode['tns:Articulos'];
     if (!articulosNode) {
       console.error('❌ Claves en resultNode:', Object.keys(resultNode));
       throw new Error('No se encontró Articulos en la respuesta');
     }
 
-    // 5. Extraer los artículos (cada uno es un objeto con atributos)
-    let articulos = articulosNode['Articulo'];
+    // 5. Extraer los artículos
+    let articulos = articulosNode['Articulo'] || articulosNode['tns:Articulo'];
     if (!articulos) {
       console.error('❌ Claves en articulosNode:', Object.keys(articulosNode));
       throw new Error('No se encontraron nodos Articulo dentro de Articulos');
@@ -135,7 +139,6 @@ export async function syncProductos() {
 
     for (const item of articulos) {
       try {
-        // Extraer valores desde ATRIBUTOS (no desde elementos hijos)
         const articuloid = parseInt(getAttr(item, 'ArticuloID') || '0');
         const nombre = getAttr(item, 'Nombre');
         const descripcion = getAttr(item, 'Descripcion');
@@ -145,7 +148,6 @@ export async function syncProductos() {
         const fechadealta = parseFecha(getAttr(item, 'FechaDeAlta'));
         const fechaultactualizacion = parseFecha(getAttr(item, 'FechaUltActualizacion'));
 
-        // Insertar o actualizar
         const query = `
           INSERT INTO productos (
             articuloid, nombre, descripcion, unidadmedidastock,
