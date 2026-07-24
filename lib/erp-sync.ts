@@ -83,54 +83,70 @@ export async function syncProductos() {
       ignoreAttrs: true,
     });
 
-    // 1. Navegar hasta ObtenerArticulosResult
-    const envelope = result['soap:Envelope'] || result;
-    const body = envelope['soap:Body'] || envelope['s:Body'] || envelope;
+    // 1. Verificar si hay un soap:Fault
+    const envelope = result['soap:Envelope'] || result['Envelope'] || result;
+    const body = envelope['soap:Body'] || envelope['Body'] || envelope;
+    const fault = body['soap:Fault'] || body['Fault'] || body['SOAP-ENV:Fault'];
+    if (fault) {
+      const faultCode = getTextFromNode(fault, 'faultcode') || 'desconocido';
+      const faultString = getTextFromNode(fault, 'faultstring') || 'Error sin descripción';
+      throw new Error(`SOAP Fault: ${faultCode} - ${faultString}`);
+    }
+
+    // 2. Buscar ObtenerArticulosResponse
     const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body;
     const resultNode = responseNode?.['ObtenerArticulosResult']?.[0];
 
     if (!resultNode) {
-      throw new Error('No se encontró el nodo ObtenerArticulosResult en la respuesta');
-    }
-
-    // 2. Buscar el nodo <Articulos> (puede ser con o sin namespace)
-    const articulosNode = resultNode['Articulos'] || resultNode['art:Articulos'] || resultNode['tns:Articulos'];
-    if (!articulosNode) {
-      // Si no hay Articulos, intentar buscar directamente los <Articulo> en resultNode
-      let articulosRaw = resultNode['Articulo'];
-      if (!articulosRaw) {
-        // Último intento: buscar en el nivel superior (algunas respuestas no tienen Articulos)
-        articulosRaw = resultNode['Table'] || resultNode['NewDataSet']?.[0]?.['Table'];
+      // Si no hay ObtenerArticulosResult, buscar directamente <Articulos> o <Table>
+      const articulosNode = body['Articulos'] || body['tns:Articulos'] || body['art:Articulos'];
+      if (articulosNode) {
+        // Extraer artículos de <Articulos>
+        let articulos = articulosNode['Articulo'] || articulosNode['tns:Articulo'] || articulosNode['art:Articulo'];
+        if (!articulos) {
+          throw new Error('No se encontraron nodos <Articulo> dentro de <Articulos>');
+        }
+        if (!Array.isArray(articulos)) articulos = [articulos];
+        console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
+        await procesarArticulos(articulos);
+        return;
       }
-      if (!articulosRaw) {
-        throw new Error('No se encontraron artículos en la respuesta');
+
+      // Buscar <Table> directamente (algunas respuestas no tienen envoltura)
+      const tableNode = body['Table'] || body['tns:Table'] || body['art:Table'];
+      if (tableNode) {
+        const articulos = Array.isArray(tableNode) ? tableNode : [tableNode];
+        console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
+        await procesarArticulos(articulos);
+        return;
       }
-      // Si es un array, usarlo directamente
-      const articulos = Array.isArray(articulosRaw) ? articulosRaw : [articulosRaw];
-      console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
-      await procesarArticulos(articulos);
-      return;
+
+      throw new Error('No se encontró ObtenerArticulosResult ni estructura de artículos en la respuesta');
     }
 
-    // 3. Extraer los artículos del nodo Articulos
-    // El nodo Articulos puede tener elementos <Articulo> directamente
-    let articulos = articulosNode['Articulo'];
-    if (!articulos) {
-      // Si no hay Articulo dentro de Articulos, intentar buscar en el nivel superior
-      articulos = resultNode['Articulo'] || resultNode['Table'];
+    // 3. Si tenemos resultNode, buscar <Articulos> o <Table> dentro de él
+    let articulos: any[] = [];
+    const articulosNode = resultNode['Articulos'] || resultNode['tns:Articulos'] || resultNode['art:Articulos'];
+    if (articulosNode) {
+      let raw = articulosNode['Articulo'] || articulosNode['tns:Articulo'] || articulosNode['art:Articulo'];
+      if (raw) {
+        articulos = Array.isArray(raw) ? raw : [raw];
+      }
     }
 
-    if (!articulos) {
+    if (articulos.length === 0) {
+      // Buscar <Table> dentro de resultNode
+      const tableNode = resultNode['Table'] || resultNode['tns:Table'] || resultNode['art:Table'];
+      if (tableNode) {
+        articulos = Array.isArray(tableNode) ? tableNode : [tableNode];
+      }
+    }
+
+    if (articulos.length === 0) {
       throw new Error('No se encontraron artículos en la respuesta');
     }
 
-    // Asegurar que es un array
-    if (!Array.isArray(articulos)) {
-      articulos = [articulos];
-    }
-
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
-
     await procesarArticulos(articulos);
 
   } catch (error) {
@@ -156,18 +172,6 @@ async function procesarArticulos(articulos: any[]) {
       const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta'));
       const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion'));
 
-      // Construir el objeto articulo (solo columnas que existen en la tabla)
-      const articulo = {
-        articuloid,
-        nombre,
-        descripcion,
-        unidadmedidastock,
-        sevende,
-        secompra,
-        fechadealta,
-        fechaultactualizacion,
-      };
-
       // Insertar o actualizar
       const query = `
         INSERT INTO productos (
@@ -187,14 +191,14 @@ async function procesarArticulos(articulos: any[]) {
       `;
 
       await sql(query, [
-        articulo.articuloid,
-        articulo.nombre,
-        articulo.descripcion,
-        articulo.unidadmedidastock,
-        articulo.sevende,
-        articulo.secompra,
-        articulo.fechadealta,
-        articulo.fechaultactualizacion
+        articuloid,
+        nombre,
+        descripcion,
+        unidadmedidastock,
+        sevende,
+        secompra,
+        fechadealta,
+        fechaultactualizacion
       ]);
 
       procesados++;
