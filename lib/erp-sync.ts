@@ -1,9 +1,10 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-// ============================================================
-// 1. ATRIBUTOS DE PRODUCTOS
-// ============================================================
+// ============================================
+// PRODUCTOS
+// ============================================
+
 const atributosProductos = [
   'ArticuloID',
   'Nombre',
@@ -84,9 +85,10 @@ const atributosProductos = [
   'FechaDeBajaParaVentas'
 ];
 
-// ============================================================
-// 2. ATRIBUTOS DE CLIENTES (extraídos del WSDL)
-// ============================================================
+// ============================================
+// CLIENTES
+// ============================================
+
 const atributosClientes = [
   'ClienteID',
   'Nombre',
@@ -231,14 +233,21 @@ const atributosClientes = [
   'PersFisTipoDeDocumentoNombre',
   'PersFisNumeroDeDocumento',
   'PersFisNumeroDeTarjetaDeCredito',
-  'FechaUltActualizacion'
+  'Grupos',
+  'FechaUltActualizacion',
+  'UltimoAuditorCliente',
+  'DatosDeVentas',
+  'BloqueadoReservas',
+  'BloqueadoContratos',
+  'CalculaIngresosBrutos'
 ];
 
-// ============================================================
-// 3. FUNCIONES AUXILIARES
-// ============================================================
 const SOAP_URL_PRODUCTOS = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
 const SOAP_URL_CLIENTES = 'http://wspirkastone.pypcloud.net:1881/ServicioCCOCliente.asmx';
+
+// ============================================
+// FUNCIONES AUXILIARES
+// ============================================
 
 function parseFecha(valor: string | null): Date | null {
   if (!valor) return null;
@@ -252,125 +261,101 @@ function parseBooleano(valor: string | null): boolean | null {
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
+function parseNumero(valor: string | null): number | null {
+  if (!valor) return null;
+  const num = parseFloat(valor);
+  return isNaN(num) ? null : num;
+}
+
 function getAttr(node: any, attrName: string): string | null {
   if (!node || !node.$) return null;
   return node.$[attrName] || null;
 }
 
-function findAllNodes(obj: any, nodeName: string): any[] {
+function getTextFromNode(node: any, tagName: string): string | null {
+  if (!node) return null;
+  const child = node[tagName];
+  if (Array.isArray(child) && child.length > 0) {
+    return child[0] || null;
+  }
+  return child || null;
+}
+
+function findAllItems(obj: any, itemName: string): any[] {
   const results: any[] = [];
   if (!obj) return results;
 
   if (Array.isArray(obj)) {
     for (const item of obj) {
-      results.push(...findAllNodes(item, nodeName));
+      results.push(...findAllItems(item, itemName));
     }
     return results;
   }
 
   if (typeof obj === 'object') {
-    // Si el objeto tiene un atributo que identifica al nodo
-    if (obj.$ && obj.$[`${nodeName}ID`] !== undefined) {
+    if (obj.$ && obj.$[`${itemName}ID`] !== undefined) {
       results.push(obj);
     }
-    // Si el objeto tiene una clave con el nombre del nodo
-    if (obj[nodeName]) {
-      const items = Array.isArray(obj[nodeName]) ? obj[nodeName] : [obj[nodeName]];
-      for (const item of items) {
-        if (item.$ && item.$[`${nodeName}ID`] !== undefined) {
-          results.push(item);
+    if (obj[itemName]) {
+      const items = Array.isArray(obj[itemName]) ? obj[itemName] : [obj[itemName]];
+      for (const it of items) {
+        if (it.$ && it.$[`${itemName}ID`] !== undefined) {
+          results.push(it);
         } else {
-          results.push(...findAllNodes(item, nodeName));
+          results.push(...findAllItems(it, itemName));
         }
       }
     }
-    // Buscar recursivamente en todas las propiedades
     for (const key of Object.keys(obj)) {
-      if (key !== nodeName && obj[key] && typeof obj[key] === 'object') {
-        results.push(...findAllNodes(obj[key], nodeName));
+      if (key !== itemName && obj[key] && typeof obj[key] === 'object') {
+        results.push(...findAllItems(obj[key], itemName));
       }
     }
   }
   return results;
 }
 
-// ============================================================
-// 4. SYNC PRODUCTOS (idéntico al que funciona)
-// ============================================================
+// ============================================
+// FUNCIÓN DE SINCRONIZACIÓN DE PRODUCTOS
+// ============================================
+
 export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de productos...');
-  await syncGenerico('productos', 'Articulo', atributosProductos, SOAP_URL_PRODUCTOS, 'ObtenerArticulos');
-}
 
-// ============================================================
-// 5. SYNC CLIENTES (idéntico a syncProductos pero con clientes)
-// ============================================================
-export async function syncClientes() {
-  console.log('🔄 Iniciando sincronización de clientes...');
-  await syncGenerico('clientes', 'Cliente', atributosClientes, SOAP_URL_CLIENTES, 'ObtenerClientes');
-}
-
-// ============================================================
-// 6. FUNCIÓN GENÉRICA DE SINCRONIZACIÓN
-// ============================================================
-async function syncGenerico(
-  tabla: string,
-  nodoRaiz: string,
-  atributos: string[],
-  soapUrl: string,
-  soapAction: string
-) {
   try {
-    const atributosXML = atributos.map(attr => 
-      `<${nodoRaiz}Atributos>${attr}</${nodoRaiz}Atributos>`
+    const atributosXML = atributosProductos.map(attr => 
+      `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
-    // Determinar el namespace correcto según el servicio
-    let namespace = 'art';
-    let actionUrl = 'http://plataforma.net.ar/';
-    let filtrosXML = '';
-    
-    if (tabla === 'productos') {
-      namespace = 'art';
-      actionUrl = 'http://plataforma.net.ar/';
-      filtrosXML = `<art:Filtros />`;
-    } else if (tabla === 'clientes') {
-      namespace = 'cli';
-      actionUrl = 'http://wsplataforma.intecsoft.com.ar/';
-      filtrosXML = `<cli:Filtros />`;
-    }
-
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:${namespace}="${actionUrl}">
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:art="http://plataforma.net.ar/">
   <soap:Body>
-    <${namespace}:${soapAction}>
-      <${namespace}:AtributosVisibles>
+    <art:ObtenerArticulos>
+      <art:AtributosVisibles>
         ${atributosXML}
-      </${namespace}:AtributosVisibles>
-      ${filtrosXML}
-    </${namespace}:${soapAction}>
+      </art:AtributosVisibles>
+      <art:Filtros />
+    </art:ObtenerArticulos>
   </soap:Body>
 </soap:Envelope>`;
 
-    console.log(`📤 XML enviado para ${tabla}:`, soapEnvelope);
-
-    const response = await fetch(soapUrl, {
+    const response = await fetch(SOAP_URL_PRODUCTOS, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': `${actionUrl}${soapAction}`,
+        'SOAPAction': 'http://plataforma.net.ar/ObtenerArticulos',
       },
       body: soapEnvelope,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`❌ Cuerpo de la respuesta de error para ${tabla}:`, errorText);
-      throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
+      console.error('❌ Error HTTP en productos:', errorText);
+      throw new Error(`Error HTTP: ${response.status}`);
     }
 
     const xmlText = await response.text();
-    console.log(`✅ Respuesta recibida del ERP para ${tabla}`);
+    console.log('✅ Respuesta de productos recibida');
 
     const result = await parseStringPromise(xmlText, {
       explicitArray: false,
@@ -381,89 +366,381 @@ async function syncGenerico(
       trim: true,
     });
 
-    // Buscar todos los nodos de la raíz (Articulo o Cliente)
-    const items = findAllNodes(result, nodoRaiz);
-    
-    if (items.length === 0) {
-      console.error(`❌ Estructura completa del resultado para ${tabla}:`, JSON.stringify(result, null, 2));
-      throw new Error(`No se encontraron ${nodoRaiz}s en la respuesta`);
-    }
-
-    console.log(`📦 ${nodoRaiz}s obtenidos del ERP: ${items.length}`);
+    const items = findAllItems(result, 'Articulo');
+    console.log(`📦 Productos obtenidos: ${items.length}`);
 
     let procesados = 0;
     let errores = 0;
 
     for (const item of items) {
       try {
-        const registro: any = {};
-        
-        // Extraer todos los atributos del nodo
-        for (const attr of atributos) {
-          const key = attr.toLowerCase();
-          const value = getAttr(item, attr);
-          
-          // Convertir según el tipo de dato
-          if (key.includes('fecha') || key.includes('date')) {
-            registro[key] = parseFecha(value);
-          } else if (key.includes('bloqueado') || key.includes('habilitado') || key.includes('controla') || 
-                     key.includes('administra') || key.includes('se') || key.includes('es')) {
-            registro[key] = parseBooleano(value);
-          } else if (key.includes('numero') || key.includes('cantidad') || key.includes('factor') || 
-                     key.includes('monto') || key.includes('porcentaje') || key.includes('tasa')) {
-            registro[key] = value ? parseFloat(value) : null;
-          } else {
-            registro[key] = value || null;
-          }
-        }
+        const articulo = {
+          articuloid: parseInt(getAttr(item, 'ArticuloID') || '0'),
+          nombre: getAttr(item, 'Nombre'),
+          descripcion: getAttr(item, 'Descripcion'),
+          unidadmedidastock: getAttr(item, 'UnidadDeMedidaDeStock'),
+          sevende: parseBooleano(getAttr(item, 'SeVende')),
+          secompra: parseBooleano(getAttr(item, 'SeCompra')),
+          fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
+          fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
+          clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
+          clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
+          clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
+          clasificacion4articulos: getAttr(item, 'Clasificacion4Articulos'),
+          clasificacion5articulos: getAttr(item, 'Clasificacion5Articulos'),
+          clasificacion6articulos: getAttr(item, 'Clasificacion6Articulos'),
+          clasificacion7articulos: getAttr(item, 'Clasificacion7Articulos'),
+          clasificacion8articulos: getAttr(item, 'Clasificacion8Articulos'),
+          clasificacion9articulos: getAttr(item, 'Clasificacion9Articulos'),
+          clasificacion10articulos: getAttr(item, 'Clasificacion10Articulos'),
+          clasificacion11articulos: getAttr(item, 'Clasificacion11Articulos'),
+          clasificacion12articulos: getAttr(item, 'Clasificacion12Articulos'),
+          clasificacion13articulos: getAttr(item, 'Clasificacion13Articulos'),
+          clasificacion14articulos: getAttr(item, 'Clasificacion14Articulos'),
+          clasificacion15articulos: getAttr(item, 'Clasificacion15Articulos'),
+          clasificacion16articulos: getAttr(item, 'Clasificacion16Articulos'),
+          clasificacion1articulosnombre: getAttr(item, 'Clasificacion1ArticulosNombre'),
+          clasificacion2articulosnombre: getAttr(item, 'Clasificacion2ArticulosNombre'),
+          clasificacion3articulosnombre: getAttr(item, 'Clasificacion3ArticulosNombre'),
+          clasificacion4articulosnombre: getAttr(item, 'Clasificacion4ArticulosNombre'),
+          clasificacion5articulosnombre: getAttr(item, 'Clasificacion5ArticulosNombre'),
+          clasificacion6articulosnombre: getAttr(item, 'Clasificacion6ArticulosNombre'),
+          clasificacion7articulosnombre: getAttr(item, 'Clasificacion7ArticulosNombre'),
+          clasificacion8articulosnombre: getAttr(item, 'Clasificacion8ArticulosNombre'),
+          clasificacion9articulosnombre: getAttr(item, 'Clasificacion9ArticulosNombre'),
+          clasificacion10articulosnombre: getAttr(item, 'Clasificacion10ArticulosNombre'),
+          clasificacion11articulosnombre: getAttr(item, 'Clasificacion11ArticulosNombre'),
+          clasificacion12articulosnombre: getAttr(item, 'Clasificacion12ArticulosNombre'),
+          clasificacion13articulosnombre: getAttr(item, 'Clasificacion13ArticulosNombre'),
+          clasificacion14articulosnombre: getAttr(item, 'Clasificacion14ArticulosNombre'),
+          clasificacion15articulosnombre: getAttr(item, 'Clasificacion15ArticulosNombre'),
+          clasificacion16articulosnombre: getAttr(item, 'Clasificacion16ArticulosNombre'),
+          secontrolastock: parseBooleano(getAttr(item, 'SeControlaStock')),
+          seadministraconpartidas: parseBooleano(getAttr(item, 'SeAdministraConPartidas')),
+          seadministraconnumerosdeserie: parseBooleano(getAttr(item, 'SeAdministraConNumerosDeSerie')),
+          seadministraportalles: parseBooleano(getAttr(item, 'SeAdministraPorTalles')),
+          fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
+          bloqueadoparamovimientosstock: parseBooleano(getAttr(item, 'BloqueadoParaMovimientosDeStock')),
+          generamovimientosstock: parseBooleano(getAttr(item, 'GeneraMovimientosDeStock')),
+          pesoembaladounidadmedidastock: parseNumero(getAttr(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock')),
+          cantidadunidadmedidastockbulto: parseNumero(getAttr(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto')),
+          unidadmedidahomogeneastock: getAttr(item, 'UnidadDeMedidaHomogeneaDeStock'),
+          factordeconversionunidadmedidahomogeneastock: parseNumero(getAttr(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock')),
+          cuentadeactivo: getAttr(item, 'CuentaDeActivo'),
+          seproduce: parseBooleano(getAttr(item, 'SeProduce')),
+          mododeconsumodecomponentes: getAttr(item, 'ModoDeConsumoDeComponentes'),
+          modalidadestockminimo: getAttr(item, 'ModalidadDeStockMinimo'),
+          stockminimoparamodalidadcantidadfija: parseNumero(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija')),
+          administrapreciopromedioponderado: parseBooleano(getAttr(item, 'AdministraPrecioPromedioPonderado')),
+          ajustacantidadesumstockcalculadasporsistema: parseBooleano(getAttr(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
+          porcentajemaximoajustecantidadumstock: parseNumero(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock')),
+          secosteaporcierremensual: parseBooleano(getAttr(item, 'SeCosteaPorCierreMensual')),
+          talle: getAttr(item, 'Talle'),
+          color: getAttr(item, 'Color'),
+          divisionparaasientodecosteoporcierre: getAttr(item, 'DivisionParaAsientoDeCosteoPorCierre'),
+          especiedegranooncca: getAttr(item, 'EspecieDeGranoONCCA'),
+          tipodegranooncca: getAttr(item, 'TipoDeGranoONCCA'),
+          variedaddedegrano: getAttr(item, 'VariedadDeGrano'),
+          cuentadeanticipoliquidacioncompracereal: getAttr(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
+          codigodeproductocot: getAttr(item, 'CodigoDeProductoCOT'),
+          unidadmedidacot: getAttr(item, 'UnidadDeMedidaCOT'),
+          factordeconversioncot: parseNumero(getAttr(item, 'FactorDeConversionCOT')),
+          volumenembaladounidadmedidastock: parseNumero(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock')),
+          unidadmedidaparadimensionesarticulo: getAttr(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
+          largo: parseNumero(getAttr(item, 'Largo')),
+          ancho: parseNumero(getAttr(item, 'Ancho')),
+          alto: parseNumero(getAttr(item, 'Alto')),
+          bloqueadoparaventa: parseBooleano(getAttr(item, 'BloqueadoParaVenta')),
+          fechadebajaparaventas: parseFecha(getAttr(item, 'FechaDeBajaParaVentas')),
+        };
 
-        // Agregar campo obligatorio según la tabla
-        if (tabla === 'productos') {
-          registro.articuloid = parseInt(registro.articuloid || '0');
-        } else if (tabla === 'clientes') {
-          registro.clienteid = parseInt(registro.clienteid || '0');
-        }
-
-        const columns = Object.keys(registro);
-        const values = columns.map((_, i) => `$${i + 1}`).join(', ');
+        const columns = Object.keys(articulo);
+        const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
         const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
 
         const query = `
-          INSERT INTO ${tabla} (${columns.join(', ')})
-          VALUES (${values})
-          ON CONFLICT (${tabla === 'productos' ? 'articuloid' : 'clienteid'}) DO UPDATE SET
+          INSERT INTO productos (${columns.join(', ')})
+          VALUES (${placeholders})
+          ON CONFLICT (articuloid) DO UPDATE SET
             ${updateSet},
             ultima_sincronizacion = CURRENT_TIMESTAMP
         `;
 
-        await sql.query(query, Object.values(registro));
-
+        await sql.query(query, Object.values(articulo));
         procesados++;
-        if (procesados % 100 === 0) {
-          console.log(`📊 Procesados ${procesados} ${nodoRaiz}s...`);
-        }
 
       } catch (error) {
         errores++;
-        console.error(`❌ Error procesando ${nodoRaiz}:`, error);
+        console.error(`❌ Error en producto ${getAttr(item, 'ArticuloID') || 'desconocido'}:`, error);
       }
     }
 
-    console.log(`📊 Resumen para ${tabla}:`);
-    console.log(`   Procesados: ${procesados}`);
-    console.log(`   Errores: ${errores}`);
-    console.log(`✅ Sincronización de ${tabla} completada`);
+    console.log(`📊 Productos: ${procesados} procesados, ${errores} errores`);
 
   } catch (error) {
-    console.error(`❌ Error en sync de ${tabla}:`, error);
+    console.error('❌ Error en syncProductos:', error);
     throw error;
   }
 }
 
-// ============================================================
-// 7. FUNCIÓN PRINCIPAL
-// ============================================================
+// ============================================
+// FUNCIÓN DE SINCRONIZACIÓN DE CLIENTES
+// ============================================
+
+export async function syncClientes() {
+  console.log('🔄 Iniciando sincronización de clientes...');
+
+  try {
+    const atributosXML = atributosClientes.map(attr => 
+      `<ClienteAtributos>${attr}</ClienteAtributos>`
+    ).join('');
+
+    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cli="http://wsplataforma.intecsoft.com.ar/">
+  <soap:Body>
+    <cli:ObtenerClientes>
+      <cli:AtributosVisibles>
+        ${atributosXML}
+      </cli:AtributosVisibles>
+      <cli:Filtros />
+    </cli:ObtenerClientes>
+  </soap:Body>
+</soap:Envelope>`;
+
+    console.log('📤 XML de clientes enviado');
+
+    const response = await fetch(SOAP_URL_CLIENTES, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://wsplataforma.intecsoft.com.ar/ObtenerClientes',
+      },
+      body: soapEnvelope,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Error HTTP en clientes:', errorText);
+      throw new Error(`Error HTTP: ${response.status}`);
+    }
+
+    const xmlText = await response.text();
+    console.log('✅ Respuesta de clientes recibida');
+
+    const result = await parseStringPromise(xmlText, {
+      explicitArray: false,
+      mergeAttrs: false,
+      ignoreAttrs: false,
+      attrkey: '$',
+      charkey: '_',
+      trim: true,
+    });
+
+    const items = findAllItems(result, 'Cliente');
+    console.log(`📦 Clientes obtenidos: ${items.length}`);
+
+    if (items.length === 0) {
+      console.error('❌ No se encontraron clientes en la respuesta');
+      console.log('📄 Primeros 500 caracteres de la respuesta:', xmlText.substring(0, 500));
+      return;
+    }
+
+    let procesados = 0;
+    let errores = 0;
+
+    for (const item of items) {
+      try {
+        const cliente = {
+          clienteid: parseInt(getAttr(item, 'ClienteID') || '0'),
+          nombre: getAttr(item, 'Nombre'),
+          nombrelegal: getAttr(item, 'NombreLegal'),
+          esclienteglobal: parseBooleano(getAttr(item, 'EsClienteGlobal')),
+          domicilio: getAttr(item, 'Domicilio'),
+          localidad: getAttr(item, 'Localidad'),
+          codigopostal: getAttr(item, 'CodigoPostal'),
+          provincia: getAttr(item, 'Provincia'),
+          provincianombre: getAttr(item, 'ProvinciaNombre'),
+          pais: getAttr(item, 'Pais'),
+          paisnombre: getAttr(item, 'PaisNombre'),
+          telefono: getAttr(item, 'Telefono'),
+          fax: getAttr(item, 'Fax'),
+          email: getAttr(item, 'Email'),
+          observacion: getAttr(item, 'Observacion'),
+          codigodeproveedorparaelcliente: getAttr(item, 'CodigoDeProveedorParaElCliente'),
+          referencia: getAttr(item, 'Referencia'),
+          horariodeatencion: getAttr(item, 'HorarioDeAtencion'),
+          horariodeentrega: getAttr(item, 'HorarioDeEntrega'),
+          condicionanteeliva: getAttr(item, 'CondicionAnteElIVA'),
+          condicionanteelivanombre: getAttr(item, 'CondicionAnteElIVANombre'),
+          clavetributaria: getAttr(item, 'ClaveTributaria'),
+          ingresosbrutos: getAttr(item, 'IngresosBrutos'),
+          contactodeventa: getAttr(item, 'ContactoDeVenta'),
+          contactodecobros: getAttr(item, 'ContactoDeCobros'),
+          condicionpago: getAttr(item, 'CondicionPago'),
+          condicionpagonombre: getAttr(item, 'CondicionPagoNombre'),
+          monedausualcuentacorriente: getAttr(item, 'MonedaUsualCuentaCorriente'),
+          monedausualcuentacorrientenombre: getAttr(item, 'MonedaUsualCuentaCorrienteNombre'),
+          cuentacliente: getAttr(item, 'CuentaCliente'),
+          tipodecliente: getAttr(item, 'TipoDeCliente'),
+          tipodeclientenombre: getAttr(item, 'TipoDeClienteNombre'),
+          actividaddcliente: getAttr(item, 'ActividadDeCliente'),
+          actividaddclientenombre: getAttr(item, 'ActividadDeClienteNombre'),
+          clasificacion1: getAttr(item, 'Clasificacion1'),
+          clasificacion1nombre: getAttr(item, 'Clasificacion1Nombre'),
+          clasificacion2: getAttr(item, 'Clasificacion2'),
+          clasificacion2nombre: getAttr(item, 'Clasificacion2Nombre'),
+          clasificacion3: getAttr(item, 'Clasificacion3'),
+          clasificacion3nombre: getAttr(item, 'Clasificacion3Nombre'),
+          clasificacion4: getAttr(item, 'Clasificacion4'),
+          clasificacion4nombre: getAttr(item, 'Clasificacion4Nombre'),
+          clasificacion5: getAttr(item, 'Clasificacion5'),
+          clasificacion5nombre: getAttr(item, 'Clasificacion5Nombre'),
+          clasificacion6: getAttr(item, 'Clasificacion6'),
+          clasificacion6nombre: getAttr(item, 'Clasificacion6Nombre'),
+          clasificacion7: getAttr(item, 'Clasificacion7'),
+          clasificacion7nombre: getAttr(item, 'Clasificacion7Nombre'),
+          clasificacion8: getAttr(item, 'Clasificacion8'),
+          clasificacion8nombre: getAttr(item, 'Clasificacion8Nombre'),
+          clasificacion9: getAttr(item, 'Clasificacion9'),
+          clasificacion9nombre: getAttr(item, 'Clasificacion9Nombre'),
+          vendedor: getAttr(item, 'Vendedor'),
+          vendedornombre: getAttr(item, 'VendedorNombre'),
+          zonadeventa: getAttr(item, 'ZonaDeVenta'),
+          zonadeventanombre: getAttr(item, 'ZonaDeVentaNombre'),
+          cobrador: getAttr(item, 'Cobrador'),
+          cobradornombre: getAttr(item, 'CobradorNombre'),
+          transporte: getAttr(item, 'Transporte'),
+          transportenombre: getAttr(item, 'TransporteNombre'),
+          bloqueadoparanotasdepedido: parseBooleano(getAttr(item, 'BloqueadoParaNotasDePedido')),
+          bloqueadoparafacturar: parseBooleano(getAttr(item, 'BloqueadoParaFacturar')),
+          fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
+          fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
+          habilitadoparaconsultasweb: parseBooleano(getAttr(item, 'HabilitadoParaConsultasWeb')),
+          formatodeimpresionporcliente: getAttr(item, 'FormatoDeImpresionPorCliente'),
+          formatodeimpresionporclientenombre: getAttr(item, 'FormatoDeImpresionPorClienteNombre'),
+          vendedor2: getAttr(item, 'Vendedor2'),
+          vendedor2nombre: getAttr(item, 'Vendedor2Nombre'),
+          atributostring1: getAttr(item, 'AtributoString1'),
+          atributostring2: getAttr(item, 'AtributoString2'),
+          atributostring3: getAttr(item, 'AtributoString3'),
+          atributostring4: getAttr(item, 'AtributoString4'),
+          atributofecha1: parseFecha(getAttr(item, 'AtributoFecha1')),
+          atributofecha2: parseFecha(getAttr(item, 'AtributoFecha2')),
+          atributofecha3: parseFecha(getAttr(item, 'AtributoFecha3')),
+          atributofecha4: parseFecha(getAttr(item, 'AtributoFecha4')),
+          clasificacion1pedidosycomprobantesvarios: getAttr(item, 'Clasificacion1PedidosYComprobantesVarios'),
+          clasificacion1pedidosycomprobantesvariosnombre: getAttr(item, 'Clasificacion1PedidosYComprobantesVariosNombre'),
+          clasificacion2pedidosycomprobantesvarios: getAttr(item, 'Clasificacion2PedidosYComprobantesVarios'),
+          clasificacion2pedidosycomprobantesvariosnombre: getAttr(item, 'Clasificacion2PedidosYComprobantesVariosNombre'),
+          clasificacion3pedidosycomprobantesvarios: getAttr(item, 'Clasificacion3PedidosYComprobantesVarios'),
+          clasificacion3pedidosycomprobantesvariosnombre: getAttr(item, 'Clasificacion3PedidosYComprobantesVariosNombre'),
+          clasificacion4pedidosycomprobantesvarios: getAttr(item, 'Clasificacion4PedidosYComprobantesVarios'),
+          clasificacion4pedidosycomprobantesvariosnombre: getAttr(item, 'Clasificacion4PedidosYComprobantesVariosNombre'),
+          clasificacion5pedidosycomprobantesvarios: getAttr(item, 'Clasificacion5PedidosYComprobantesVarios'),
+          clasificacion5pedidosycomprobantesvariosnombre: getAttr(item, 'Clasificacion5PedidosYComprobantesVariosNombre'),
+          clasificacion6pedidosycomprobantesvarios: getAttr(item, 'Clasificacion6PedidosYComprobantesVarios'),
+          clasificacion6pedidosycomprobantesvariosnombre: getAttr(item, 'Clasificacion6PedidosYComprobantesVariosNombre'),
+          habilitadoparaconciliacionconempresacliente: parseBooleano(getAttr(item, 'HabilitadoParaConciliacionConEmpresaCliente')),
+          codigodeclienteexterno: getAttr(item, 'CodigoDeClienteExterno'),
+          fechadeproximagestiondecobranza: parseFecha(getAttr(item, 'FechaDeProximaGestionDeCobranza')),
+          proximagestiondecobranza: getAttr(item, 'ProximaGestionDeCobranza'),
+          formadegenerarcomprobantesenelsistemadecontratos: getAttr(item, 'FormaDeGenerarComprobantesEnElSistemaDeContratos'),
+          nodoorigen: getAttr(item, 'NodoOrigen'),
+          nodoorigennombre: getAttr(item, 'NodoOrigenNombre'),
+          municipio: getAttr(item, 'Municipio'),
+          municipionombre: getAttr(item, 'MunicipioNombre'),
+          seconsideraparatasadeabasto: parseBooleano(getAttr(item, 'SeConsideraParaTasaDeAbasto')),
+          controlaelcobrocorrelativoporvencimiento: parseBooleano(getAttr(item, 'ControlaElCobroCorrelativoPorVencimiento')),
+          vehiculopordefecto: getAttr(item, 'VehiculoPorDefecto'),
+          vehiculopordefectonombre: getAttr(item, 'VehiculoPorDefectoNombre'),
+          distribuidor: getAttr(item, 'Distribuidor'),
+          distribuidornombre: getAttr(item, 'DistribuidorNombre'),
+          zonadedistribucion: getAttr(item, 'ZonaDeDistribucion'),
+          zonadedistribucionnombre: getAttr(item, 'ZonaDeDistribucionNombre'),
+          calle: getAttr(item, 'Calle'),
+          numerocalle: parseNumero(getAttr(item, 'NumeroCalle')),
+          piso: getAttr(item, 'Piso'),
+          departamento: getAttr(item, 'Departamento'),
+          barrio: getAttr(item, 'Barrio'),
+          diasdegraciasparaelcalculodediasdeatrasoderecibos: parseNumero(getAttr(item, 'DiasDeGraciaParaElCalculoDeDiasDeAtrasoDeRecibos')),
+          sitioweb: getAttr(item, 'SitioWeb'),
+          descripciondelaactividad: getAttr(item, 'DescripcionDeLaActividad'),
+          facturacionanualenmonedalocal: parseNumero(getAttr(item, 'FacturacionAnualEnMonedaLocal')),
+          cantidaddeempleados: parseNumero(getAttr(item, 'CantidadDeEmpleados')),
+          enviocomprobantespormaildirecciondemail: getAttr(item, 'EnvioComprobantesPorMailDireccionDeMail'),
+          enviocomprobantespormailasuntodelmail: getAttr(item, 'EnvioComprobantesPorMailAsuntoDelMail'),
+          enviocomprobantespormailcuerpodelmail: getAttr(item, 'EnvioComprobantesPorMailCuerpoDelMail'),
+          observaciondeproximagestiondecobranza: getAttr(item, 'ObservacionDeProximaGestionDeCobranza'),
+          codigodecalle: getAttr(item, 'CodigoDeCalle'),
+          codigodecallenombre: getAttr(item, 'CodigoDeCalleNombre'),
+          enviorecibosdeclientespormaildirecciondemail: getAttr(item, 'EnvioRecibosDeClientesPorMailDireccionDeMail'),
+          enviorecibosdeclientespormailasuntosdelmail: getAttr(item, 'EnvioRecibosDeClientesPorMailAsuntosDelMail'),
+          enviorecibosdeclientespormailcuerpodelmail: getAttr(item, 'EnvioRecibosDeClientesPorMailCuerpoDelMail'),
+          tasamensualparacalculodeinteres: parseNumero(getAttr(item, 'TasaMensualParaCalculoDeInteres')),
+          emailbackup: getAttr(item, 'EmailBackup'),
+          personafisica: parseBooleano(getAttr(item, 'PersonaFisica')),
+          persfisfechadenacimiento: parseFecha(getAttr(item, 'PersFisFechaDeNacimiento')),
+          persfispaisdenacimiento: getAttr(item, 'PersFisPaisDeNacimiento'),
+          persfispaisdenacimientonombre: getAttr(item, 'PersFisPaisDeNacimientoNombre'),
+          persfisnacionalidad: getAttr(item, 'PersFisNacionalidad'),
+          persfisnacionalidadnombre: getAttr(item, 'PersFisNacionalidadNombre'),
+          persfissexo: getAttr(item, 'PersFisSexo'),
+          persfisprofesion: getAttr(item, 'PersFisProfesion'),
+          persfisprofesionnombre: getAttr(item, 'PersFisProfesionNombre'),
+          persfistarjetadecredito: getAttr(item, 'PersFisTarjetaDeCredito'),
+          persfistarjetadecreditonombre: getAttr(item, 'PersFisTarjetaDeCreditoNombre'),
+          persfisfechadevencimientodetarjetadecredito: parseFecha(getAttr(item, 'PersFisFechaDeVencimientoDeTarjetaDeCredito')),
+          persfistipodedocumento: getAttr(item, 'PersFisTipoDeDocumento'),
+          persfistipodedocumentonombre: getAttr(item, 'PersFisTipoDeDocumentoNombre'),
+          persfisnumerodedocumento: getAttr(item, 'PersFisNumeroDeDocumento'),
+          persfisnumerodetarjetadecredito: getAttr(item, 'PersFisNumeroDeTarjetaDeCredito'),
+          grupos: getAttr(item, 'Grupos'),
+          fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
+          ultimoauditorcliente: getAttr(item, 'UltimoAuditorCliente'),
+          datosdeventas: getAttr(item, 'DatosDeVentas'),
+          bloqueadoreservas: parseBooleano(getAttr(item, 'BloqueadoReservas')),
+          bloqueadocontratos: parseBooleano(getAttr(item, 'BloqueadoContratos')),
+          calculaingresosbrutos: parseBooleano(getAttr(item, 'CalculaIngresosBrutos')),
+        };
+
+        const columns = Object.keys(cliente);
+        const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+        const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+
+        const query = `
+          INSERT INTO clientes (${columns.join(', ')})
+          VALUES (${placeholders})
+          ON CONFLICT (clienteid) DO UPDATE SET
+            ${updateSet},
+            ultima_sincronizacion = CURRENT_TIMESTAMP
+        `;
+
+        await sql.query(query, Object.values(cliente));
+        procesados++;
+
+      } catch (error) {
+        errores++;
+        console.error(`❌ Error en cliente ${getAttr(item, 'ClienteID') || 'desconocido'}:`, error);
+      }
+    }
+
+    console.log(`📊 Clientes: ${procesados} procesados, ${errores} errores`);
+
+  } catch (error) {
+    console.error('❌ Error en syncClientes:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// FUNCIÓN PRINCIPAL
+// ============================================
+
 export async function syncAll() {
+  console.log('🔄 Iniciando sincronización completa...');
+  
   await syncProductos();
   await syncClientes();
+  
+  console.log('✅ Sincronización completa finalizada');
 }
