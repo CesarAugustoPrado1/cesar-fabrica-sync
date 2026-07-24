@@ -1,8 +1,8 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-// Lista COMPLETA de atributos del ERP (100+ atributos)
-const atributosCompletos = [
+// Lista completa de atributos (todos los que quieras)
+const atributos = [
   'ArticuloID',
   'Nombre',
   'Descripcion',
@@ -11,21 +11,38 @@ const atributosCompletos = [
   'SeCompra',
   'FechaDeAlta',
   'FechaUltActualizacion',
-  // Clasificaciones 1 a 16
-  'Clasificacion1Articulos', 'Clasificacion2Articulos', 'Clasificacion3Articulos',
-  'Clasificacion4Articulos', 'Clasificacion5Articulos', 'Clasificacion6Articulos',
-  'Clasificacion7Articulos', 'Clasificacion8Articulos', 'Clasificacion9Articulos',
-  'Clasificacion10Articulos', 'Clasificacion11Articulos', 'Clasificacion12Articulos',
-  'Clasificacion13Articulos', 'Clasificacion14Articulos', 'Clasificacion15Articulos',
+  'Clasificacion1Articulos',
+  'Clasificacion2Articulos',
+  'Clasificacion3Articulos',
+  'Clasificacion4Articulos',
+  'Clasificacion5Articulos',
+  'Clasificacion6Articulos',
+  'Clasificacion7Articulos',
+  'Clasificacion8Articulos',
+  'Clasificacion9Articulos',
+  'Clasificacion10Articulos',
+  'Clasificacion11Articulos',
+  'Clasificacion12Articulos',
+  'Clasificacion13Articulos',
+  'Clasificacion14Articulos',
+  'Clasificacion15Articulos',
   'Clasificacion16Articulos',
-  // Nombres de clasificaciones 1 a 16
-  'Clasificacion1ArticulosNombre', 'Clasificacion2ArticulosNombre', 'Clasificacion3ArticulosNombre',
-  'Clasificacion4ArticulosNombre', 'Clasificacion5ArticulosNombre', 'Clasificacion6ArticulosNombre',
-  'Clasificacion7ArticulosNombre', 'Clasificacion8ArticulosNombre', 'Clasificacion9ArticulosNombre',
-  'Clasificacion10ArticulosNombre', 'Clasificacion11ArticulosNombre', 'Clasificacion12ArticulosNombre',
-  'Clasificacion13ArticulosNombre', 'Clasificacion14ArticulosNombre', 'Clasificacion15ArticulosNombre',
+  'Clasificacion1ArticulosNombre',
+  'Clasificacion2ArticulosNombre',
+  'Clasificacion3ArticulosNombre',
+  'Clasificacion4ArticulosNombre',
+  'Clasificacion5ArticulosNombre',
+  'Clasificacion6ArticulosNombre',
+  'Clasificacion7ArticulosNombre',
+  'Clasificacion8ArticulosNombre',
+  'Clasificacion9ArticulosNombre',
+  'Clasificacion10ArticulosNombre',
+  'Clasificacion11ArticulosNombre',
+  'Clasificacion12ArticulosNombre',
+  'Clasificacion13ArticulosNombre',
+  'Clasificacion14ArticulosNombre',
+  'Clasificacion15ArticulosNombre',
   'Clasificacion16ArticulosNombre',
-  // Atributos de stock y control
   'SeControlaStock',
   'SeAdministraConPartidas',
   'SeAdministraConNumerosDeSerie',
@@ -33,7 +50,6 @@ const atributosCompletos = [
   'FechaDeBaja',
   'BloqueadoParaMovimientosDeStock',
   'GeneraMovimientosDeStock',
-  // Atributos de pesos, conversiones, etc.
   'PesoEmbaladoPorUnidadDeMedidaDeStock',
   'CantidadPorUnidadDeMedidaDeStockPorBulto',
   'UnidadDeMedidaHomogeneaDeStock',
@@ -80,47 +96,55 @@ function parseBooleano(valor: string | null): boolean | null {
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
-function parseNumero(valor: string | null): number | null {
-  if (!valor) return null;
-  const num = parseFloat(valor.replace(',', '.'));
-  return isNaN(num) ? null : num;
-}
-
 function getAttr(node: any, attrName: string): string | null {
   if (!node || !node.$) return null;
   return node.$[attrName] || null;
 }
 
-function findNode(obj: any, nodeName: string): any | null {
-  if (!obj) return null;
+// Busca todos los nodos que tienen un atributo ArticuloID (o que se llamen Articulo)
+function findAllArticulos(obj: any): any[] {
+  const results: any[] = [];
+  if (!obj) return results;
+
   if (Array.isArray(obj)) {
     for (const item of obj) {
-      const found = findNode(item, nodeName);
-      if (found) return found;
+      results.push(...findAllArticulos(item));
     }
-    return null;
+    return results;
   }
+
   if (typeof obj === 'object') {
-    for (const key of Object.keys(obj)) {
-      if (key === nodeName || key.includes(nodeName) || key.endsWith(nodeName)) {
-        return obj[key];
+    // Si el objeto tiene un atributo ArticuloID, es un artículo
+    if (obj.$ && obj.$['ArticuloID'] !== undefined) {
+      results.push(obj);
+    }
+    // Si el objeto tiene una clave 'Articulo', extraer su valor (puede ser array u objeto)
+    if (obj['Articulo']) {
+      const articulos = Array.isArray(obj['Articulo']) ? obj['Articulo'] : [obj['Articulo']];
+      for (const art of articulos) {
+        if (art.$ && art.$['ArticuloID'] !== undefined) {
+          results.push(art);
+        } else {
+          // Si no tiene ArticuloID, buscar recursivamente dentro de art
+          results.push(...findAllArticulos(art));
+        }
       }
     }
+    // Buscar recursivamente en todas las propiedades
     for (const key of Object.keys(obj)) {
-      if (obj[key] && typeof obj[key] === 'object') {
-        const found = findNode(obj[key], nodeName);
-        if (found) return found;
+      if (key !== 'Articulo' && obj[key] && typeof obj[key] === 'object') {
+        results.push(...findAllArticulos(obj[key]));
       }
     }
   }
-  return null;
+  return results;
 }
 
 export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
   try {
-    const atributosXML = atributosCompletos.map(attr => 
+    const atributosXML = atributos.map(attr => 
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
@@ -165,20 +189,12 @@ export async function syncProductos() {
       trim: true,
     });
 
-    const articulosNode = findNode(result, 'Articulos');
-    if (!articulosNode) {
+    // Buscar todos los artículos en la estructura completa
+    const articulos = findAllArticulos(result);
+    
+    if (articulos.length === 0) {
       console.error('❌ Estructura completa del resultado:', JSON.stringify(result, null, 2));
-      throw new Error('No se encontró el nodo Articulos en la respuesta');
-    }
-
-    let articulos = articulosNode['Articulo'] || articulosNode['tns:Articulo'];
-    if (!articulos) {
-      console.error('❌ Claves en articulosNode:', Object.keys(articulosNode));
-      throw new Error('No se encontraron nodos Articulo dentro de Articulos');
-    }
-
-    if (!Array.isArray(articulos)) {
-      articulos = [articulos];
+      throw new Error('No se encontraron artículos en la respuesta');
     }
 
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
@@ -197,7 +213,6 @@ export async function syncProductos() {
           secompra: parseBooleano(getAttr(item, 'SeCompra')),
           fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
           fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
-          // Clasificaciones 1 a 16
           clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
           clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
           clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
@@ -214,7 +229,6 @@ export async function syncProductos() {
           clasificacion14articulos: getAttr(item, 'Clasificacion14Articulos'),
           clasificacion15articulos: getAttr(item, 'Clasificacion15Articulos'),
           clasificacion16articulos: getAttr(item, 'Clasificacion16Articulos'),
-          // Nombres de clasificaciones
           clasificacion1articulosnombre: getAttr(item, 'Clasificacion1ArticulosNombre'),
           clasificacion2articulosnombre: getAttr(item, 'Clasificacion2ArticulosNombre'),
           clasificacion3articulosnombre: getAttr(item, 'Clasificacion3ArticulosNombre'),
@@ -231,7 +245,6 @@ export async function syncProductos() {
           clasificacion14articulosnombre: getAttr(item, 'Clasificacion14ArticulosNombre'),
           clasificacion15articulosnombre: getAttr(item, 'Clasificacion15ArticulosNombre'),
           clasificacion16articulosnombre: getAttr(item, 'Clasificacion16ArticulosNombre'),
-          // Stock y control
           secontrolastock: parseBooleano(getAttr(item, 'SeControlaStock')),
           seadministraconpartidas: parseBooleano(getAttr(item, 'SeAdministraConPartidas')),
           seadministraconnumerosdeserie: parseBooleano(getAttr(item, 'SeAdministraConNumerosDeSerie')),
@@ -239,19 +252,18 @@ export async function syncProductos() {
           fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
           bloqueadoparamovimientosstock: parseBooleano(getAttr(item, 'BloqueadoParaMovimientosDeStock')),
           generamovimientosstock: parseBooleano(getAttr(item, 'GeneraMovimientosDeStock')),
-          // Pesos y conversiones
-          pesoembaladounidadmedidastock: parseNumero(getAttr(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock')),
-          cantidadunidadmedidastockbulto: parseNumero(getAttr(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto')),
+          pesoembaladounidadmedidastock: parseFloat(getAttr(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock') || '0'),
+          cantidadunidadmedidastockbulto: parseFloat(getAttr(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto') || '0'),
           unidadmedidahomogeneastock: getAttr(item, 'UnidadDeMedidaHomogeneaDeStock'),
-          factordeconversionunidadmedidahomogeneastock: parseNumero(getAttr(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock')),
+          factordeconversionunidadmedidahomogeneastock: parseFloat(getAttr(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock') || '0'),
           cuentadeactivo: getAttr(item, 'CuentaDeActivo'),
           seproduce: parseBooleano(getAttr(item, 'SeProduce')),
           mododeconsumodecomponentes: getAttr(item, 'ModoDeConsumoDeComponentes'),
           modalidadestockminimo: getAttr(item, 'ModalidadDeStockMinimo'),
-          stockminimoparamodalidadcantidadfija: parseNumero(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija')),
+          stockminimoparamodalidadcantidadfija: parseFloat(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija') || '0'),
           administrapreciopromedioponderado: parseBooleano(getAttr(item, 'AdministraPrecioPromedioPonderado')),
           ajustacantidadesumstockcalculadasporsistema: parseBooleano(getAttr(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
-          porcentajemaximoajustecantidadumstock: parseNumero(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock')),
+          porcentajemaximoajustecantidadumstock: parseFloat(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock') || '0'),
           secosteaporcierremensual: parseBooleano(getAttr(item, 'SeCosteaPorCierreMensual')),
           talle: getAttr(item, 'Talle'),
           color: getAttr(item, 'Color'),
@@ -262,216 +274,34 @@ export async function syncProductos() {
           cuentadeanticipoliquidacioncompracereal: getAttr(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
           codigodeproductocot: getAttr(item, 'CodigoDeProductoCOT'),
           unidadmedidacot: getAttr(item, 'UnidadDeMedidaCOT'),
-          factordeconversioncot: parseNumero(getAttr(item, 'FactorDeConversionCOT')),
-          volumenembaladounidadmedidastock: parseNumero(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock')),
+          factordeconversioncot: parseFloat(getAttr(item, 'FactorDeConversionCOT') || '0'),
+          volumenembaladounidadmedidastock: parseFloat(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock') || '0'),
           unidadmedidaparadimensionesarticulo: getAttr(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
-          largo: parseNumero(getAttr(item, 'Largo')),
-          ancho: parseNumero(getAttr(item, 'Ancho')),
-          alto: parseNumero(getAttr(item, 'Alto')),
+          largo: parseFloat(getAttr(item, 'Largo') || '0'),
+          ancho: parseFloat(getAttr(item, 'Ancho') || '0'),
+          alto: parseFloat(getAttr(item, 'Alto') || '0'),
           bloqueadoparaventa: parseBooleano(getAttr(item, 'BloqueadoParaVenta')),
           fechadebajaparaventas: parseFecha(getAttr(item, 'FechaDeBajaParaVentas')),
         };
 
+        // Construir la query dinámicamente para evitar escribir 100 columnas a mano
+        // Pero como ya tenemos la estructura definida, usamos una query fija con todas las columnas.
+        // Para no hacer el código demasiado largo, voy a generar una query con todas las columnas.
+        // Como son muchas, la voy a construir en base al objeto articulo.
+
+        const columns = Object.keys(articulo);
+        const values = columns.map((_, i) => `$${i + 1}`).join(', ');
+        const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+
         const query = `
-          INSERT INTO productos (
-            articuloid, nombre, descripcion, unidadmedidastock,
-            sevende, secompra, fechadealta, fechaultactualizacion,
-            clasificacion1articulos, clasificacion2articulos,
-            clasificacion3articulos, clasificacion4articulos,
-            clasificacion5articulos, clasificacion6articulos,
-            clasificacion7articulos, clasificacion8articulos,
-            clasificacion9articulos, clasificacion10articulos,
-            clasificacion11articulos, clasificacion12articulos,
-            clasificacion13articulos, clasificacion14articulos,
-            clasificacion15articulos, clasificacion16articulos,
-            clasificacion1articulosnombre, clasificacion2articulosnombre,
-            clasificacion3articulosnombre, clasificacion4articulosnombre,
-            clasificacion5articulosnombre, clasificacion6articulosnombre,
-            clasificacion7articulosnombre, clasificacion8articulosnombre,
-            clasificacion9articulosnombre, clasificacion10articulosnombre,
-            clasificacion11articulosnombre, clasificacion12articulosnombre,
-            clasificacion13articulosnombre, clasificacion14articulosnombre,
-            clasificacion15articulosnombre, clasificacion16articulosnombre,
-            secontrolastock, seadministraconpartidas,
-            seadministraconnumerosdeserie, seadministraportalles,
-            fechadebaja, bloqueadoparamovimientosstock, generamovimientosstock,
-            pesoembaladounidadmedidastock, cantidadunidadmedidastockbulto,
-            unidadmedidahomogeneastock, factordeconversionunidadmedidahomogeneastock,
-            cuentadeactivo, seproduce, mododeconsumodecomponentes,
-            modalidadestockminimo, stockminimoparamodalidadcantidadfija,
-            administrapreciopromedioponderado,
-            ajustacantidadesumstockcalculadasporsistema,
-            porcentajemaximoajustecantidadumstock,
-            secosteaporcierremensual, talle, color,
-            divisionparaasientodecosteoporcierre,
-            especiedegranooncca, tipodegranooncca, variedaddedegrano,
-            cuentadeanticipoliquidacioncompracereal,
-            codigodeproductocot, unidadmedidacot, factordeconversioncot,
-            volumenembaladounidadmedidastock,
-            unidadmedidaparadimensionesarticulo,
-            largo, ancho, alto,
-            bloqueadoparaventa, fechadebajaparaventas,
-            ultima_sincronizacion
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, CURRENT_TIMESTAMP)
+          INSERT INTO productos (${columns.join(', ')})
+          VALUES (${values})
           ON CONFLICT (articuloid) DO UPDATE SET
-            nombre = EXCLUDED.nombre,
-            descripcion = EXCLUDED.descripcion,
-            unidadmedidastock = EXCLUDED.unidadmedidastock,
-            sevende = EXCLUDED.sevende,
-            secompra = EXCLUDED.secompra,
-            fechadealta = EXCLUDED.fechadealta,
-            fechaultactualizacion = EXCLUDED.fechaultactualizacion,
-            clasificacion1articulos = EXCLUDED.clasificacion1articulos,
-            clasificacion2articulos = EXCLUDED.clasificacion2articulos,
-            clasificacion3articulos = EXCLUDED.clasificacion3articulos,
-            clasificacion4articulos = EXCLUDED.clasificacion4articulos,
-            clasificacion5articulos = EXCLUDED.clasificacion5articulos,
-            clasificacion6articulos = EXCLUDED.clasificacion6articulos,
-            clasificacion7articulos = EXCLUDED.clasificacion7articulos,
-            clasificacion8articulos = EXCLUDED.clasificacion8articulos,
-            clasificacion9articulos = EXCLUDED.clasificacion9articulos,
-            clasificacion10articulos = EXCLUDED.clasificacion10articulos,
-            clasificacion11articulos = EXCLUDED.clasificacion11articulos,
-            clasificacion12articulos = EXCLUDED.clasificacion12articulos,
-            clasificacion13articulos = EXCLUDED.clasificacion13articulos,
-            clasificacion14articulos = EXCLUDED.clasificacion14articulos,
-            clasificacion15articulos = EXCLUDED.clasificacion15articulos,
-            clasificacion16articulos = EXCLUDED.clasificacion16articulos,
-            clasificacion1articulosnombre = EXCLUDED.clasificacion1articulosnombre,
-            clasificacion2articulosnombre = EXCLUDED.clasificacion2articulosnombre,
-            clasificacion3articulosnombre = EXCLUDED.clasificacion3articulosnombre,
-            clasificacion4articulosnombre = EXCLUDED.clasificacion4articulosnombre,
-            clasificacion5articulosnombre = EXCLUDED.clasificacion5articulosnombre,
-            clasificacion6articulosnombre = EXCLUDED.clasificacion6articulosnombre,
-            clasificacion7articulosnombre = EXCLUDED.clasificacion7articulosnombre,
-            clasificacion8articulosnombre = EXCLUDED.clasificacion8articulosnombre,
-            clasificacion9articulosnombre = EXCLUDED.clasificacion9articulosnombre,
-            clasificacion10articulosnombre = EXCLUDED.clasificacion10articulosnombre,
-            clasificacion11articulosnombre = EXCLUDED.clasificacion11articulosnombre,
-            clasificacion12articulosnombre = EXCLUDED.clasificacion12articulosnombre,
-            clasificacion13articulosnombre = EXCLUDED.clasificacion13articulosnombre,
-            clasificacion14articulosnombre = EXCLUDED.clasificacion14articulosnombre,
-            clasificacion15articulosnombre = EXCLUDED.clasificacion15articulosnombre,
-            clasificacion16articulosnombre = EXCLUDED.clasificacion16articulosnombre,
-            secontrolastock = EXCLUDED.secontrolastock,
-            seadministraconpartidas = EXCLUDED.seadministraconpartidas,
-            seadministraconnumerosdeserie = EXCLUDED.seadministraconnumerosdeserie,
-            seadministraportalles = EXCLUDED.seadministraportalles,
-            fechadebaja = EXCLUDED.fechadebaja,
-            bloqueadoparamovimientosstock = EXCLUDED.bloqueadoparamovimientosstock,
-            generamovimientosstock = EXCLUDED.generamovimientosstock,
-            pesoembaladounidadmedidastock = EXCLUDED.pesoembaladounidadmedidastock,
-            cantidadunidadmedidastockbulto = EXCLUDED.cantidadunidadmedidastockbulto,
-            unidadmedidahomogeneastock = EXCLUDED.unidadmedidahomogeneastock,
-            factordeconversionunidadmedidahomogeneastock = EXCLUDED.factordeconversionunidadmedidahomogeneastock,
-            cuentadeactivo = EXCLUDED.cuentadeactivo,
-            seproduce = EXCLUDED.seproduce,
-            mododeconsumodecomponentes = EXCLUDED.mododeconsumodecomponentes,
-            modalidadestockminimo = EXCLUDED.modalidadestockminimo,
-            stockminimoparamodalidadcantidadfija = EXCLUDED.stockminimoparamodalidadcantidadfija,
-            administrapreciopromedioponderado = EXCLUDED.administrapreciopromedioponderado,
-            ajustacantidadesumstockcalculadasporsistema = EXCLUDED.ajustacantidadesumstockcalculadasporsistema,
-            porcentajemaximoajustecantidadumstock = EXCLUDED.porcentajemaximoajustecantidadumstock,
-            secosteaporcierremensual = EXCLUDED.secosteaporcierremensual,
-            talle = EXCLUDED.talle,
-            color = EXCLUDED.color,
-            divisionparaasientodecosteoporcierre = EXCLUDED.divisionparaasientodecosteoporcierre,
-            especiedegranooncca = EXCLUDED.especiedegranooncca,
-            tipodegranooncca = EXCLUDED.tipodegranooncca,
-            variedaddedegrano = EXCLUDED.variedaddedegrano,
-            cuentadeanticipoliquidacioncompracereal = EXCLUDED.cuentadeanticipoliquidacioncompracereal,
-            codigodeproductocot = EXCLUDED.codigodeproductocot,
-            unidadmedidacot = EXCLUDED.unidadmedidacot,
-            factordeconversioncot = EXCLUDED.factordeconversioncot,
-            volumenembaladounidadmedidastock = EXCLUDED.volumenembaladounidadmedidastock,
-            unidadmedidaparadimensionesarticulo = EXCLUDED.unidadmedidaparadimensionesarticulo,
-            largo = EXCLUDED.largo,
-            ancho = EXCLUDED.ancho,
-            alto = EXCLUDED.alto,
-            bloqueadoparaventa = EXCLUDED.bloqueadoparaventa,
-            fechadebajaparaventas = EXCLUDED.fechadebajaparaventas,
+            ${updateSet},
             ultima_sincronizacion = CURRENT_TIMESTAMP
         `;
 
-        await sql(query, [
-          articulo.articuloid,
-          articulo.nombre,
-          articulo.descripcion,
-          articulo.unidadmedidastock,
-          articulo.sevende,
-          articulo.secompra,
-          articulo.fechadealta,
-          articulo.fechaultactualizacion,
-          articulo.clasificacion1articulos,
-          articulo.clasificacion2articulos,
-          articulo.clasificacion3articulos,
-          articulo.clasificacion4articulos,
-          articulo.clasificacion5articulos,
-          articulo.clasificacion6articulos,
-          articulo.clasificacion7articulos,
-          articulo.clasificacion8articulos,
-          articulo.clasificacion9articulos,
-          articulo.clasificacion10articulos,
-          articulo.clasificacion11articulos,
-          articulo.clasificacion12articulos,
-          articulo.clasificacion13articulos,
-          articulo.clasificacion14articulos,
-          articulo.clasificacion15articulos,
-          articulo.clasificacion16articulos,
-          articulo.clasificacion1articulosnombre,
-          articulo.clasificacion2articulosnombre,
-          articulo.clasificacion3articulosnombre,
-          articulo.clasificacion4articulosnombre,
-          articulo.clasificacion5articulosnombre,
-          articulo.clasificacion6articulosnombre,
-          articulo.clasificacion7articulosnombre,
-          articulo.clasificacion8articulosnombre,
-          articulo.clasificacion9articulosnombre,
-          articulo.clasificacion10articulosnombre,
-          articulo.clasificacion11articulosnombre,
-          articulo.clasificacion12articulosnombre,
-          articulo.clasificacion13articulosnombre,
-          articulo.clasificacion14articulosnombre,
-          articulo.clasificacion15articulosnombre,
-          articulo.clasificacion16articulosnombre,
-          articulo.secontrolastock,
-          articulo.seadministraconpartidas,
-          articulo.seadministraconnumerosdeserie,
-          articulo.seadministraportalles,
-          articulo.fechadebaja,
-          articulo.bloqueadoparamovimientosstock,
-          articulo.generamovimientosstock,
-          articulo.pesoembaladounidadmedidastock,
-          articulo.cantidadunidadmedidastockbulto,
-          articulo.unidadmedidahomogeneastock,
-          articulo.factordeconversionunidadmedidahomogeneastock,
-          articulo.cuentadeactivo,
-          articulo.seproduce,
-          articulo.mododeconsumodecomponentes,
-          articulo.modalidadestockminimo,
-          articulo.stockminimoparamodalidadcantidadfija,
-          articulo.administrapreciopromedioponderado,
-          articulo.ajustacantidadesumstockcalculadasporsistema,
-          articulo.porcentajemaximoajustecantidadumstock,
-          articulo.secosteaporcierremensual,
-          articulo.talle,
-          articulo.color,
-          articulo.divisionparaasientodecosteoporcierre,
-          articulo.especiedegranooncca,
-          articulo.tipodegranooncca,
-          articulo.variedaddedegrano,
-          articulo.cuentadeanticipoliquidacioncompracereal,
-          articulo.codigodeproductocot,
-          articulo.unidadmedidacot,
-          articulo.factordeconversioncot,
-          articulo.volumenembaladounidadmedidastock,
-          articulo.unidadmedidaparadimensionesarticulo,
-          articulo.largo,
-          articulo.ancho,
-          articulo.alto,
-          articulo.bloqueadoparaventa,
-          articulo.fechadebajaparaventas,
-        ]);
+        await sql(query, Object.values(articulo));
 
         procesados++;
         if (procesados % 100 === 0) {
