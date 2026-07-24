@@ -1,6 +1,7 @@
 import { sql } from './db';
 
-// Lista MÍNIMA (la original que funcionaba con 1,118 artículos)
+// Lista de atributos MÍNIMA para probar que la conexión funciona
+// (estos son los que funcionaban antes de agregar todos los demás)
 const atributosMinimos = [
   'ArticuloID',
   'Nombre',
@@ -22,13 +23,6 @@ function parseFecha(valor: string | null): Date | null {
   return isNaN(fecha.getTime()) ? null : fecha;
 }
 
-// Función auxiliar para parsear números
-function parseNumero(valor: string | null): number | null {
-  if (!valor) return null;
-  const num = parseFloat(valor);
-  return isNaN(num) ? null : num;
-}
-
 // Función auxiliar para parsear booleanos (acepta 'true', '1', 'Sí', etc.)
 function parseBooleano(valor: string | null): boolean | null {
   if (!valor) return null;
@@ -46,7 +40,7 @@ function getTextFromNode(node: any, tagName: string): string | null {
   return child || null;
 }
 
-// Función principal de sincronización de artículos (USANDO LISTA MÍNIMA)
+// Función principal de sincronización de artículos (usando atributos mínimos)
 export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
@@ -56,6 +50,8 @@ export async function syncProductos() {
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
+    // NOTA IMPORTANTE: Se incluye el nodo <Filtros /> vacío para evitar el error 500
+    // del servidor (NullReferenceException al no encontrar el objeto Filtros).
     const soapEnvelope = `
       <?xml version="1.0" encoding="utf-8"?>
       <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
@@ -65,6 +61,7 @@ export async function syncProductos() {
             <art:AtributosVisibles>
               ${atributosXML}
             </art:AtributosVisibles>
+            <art:Filtros />
           </art:ObtenerArticulos>
         </soap:Body>
       </soap:Envelope>
@@ -82,7 +79,7 @@ export async function syncProductos() {
       body: soapEnvelope,
     });
 
-    // 3. Capturar error 400 con el cuerpo de la respuesta
+    // 3. Capturar errores HTTP y mostrar el cuerpo si existe
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ Cuerpo de la respuesta de error:', errorText);
@@ -92,7 +89,7 @@ export async function syncProductos() {
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida del ERP');
 
-    // 4. Parsear el XML de respuesta (usamos xml2js)
+    // 4. Parsear el XML de respuesta usando xml2js
     const { parseStringPromise } = await import('xml2js');
     
     const result = await parseStringPromise(xmlText, {
@@ -124,9 +121,8 @@ export async function syncProductos() {
 
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
 
-    // 6. Procesar cada artículo (SOLO los atributos mínimos)
+    // 6. Procesar cada artículo
     let insertados = 0;
-    let actualizados = 0;
     let errores = 0;
 
     for (const item of articulos) {
@@ -142,7 +138,13 @@ export async function syncProductos() {
           fechaultactualizacion: parseFecha(getTextFromNode(item, 'FechaUltActualizacion')),
         };
 
-        // 7. Insertar o actualizar en la base de datos (SOLO columnas existentes)
+        // Función para escapar comillas simples en cadenas SQL
+        const escapeSQL = (val: string | null) => {
+          if (val === null || val === undefined) return null;
+          return val.replace(/'/g, "''");
+        };
+
+        // 7. Insertar o actualizar en la base de datos (solo las columnas que usamos)
         const query = `
           INSERT INTO productos (
             articuloid, nombre, descripcion, unidadmedidastock,
@@ -150,9 +152,9 @@ export async function syncProductos() {
             ultima_sincronizacion
           ) VALUES (
             ${articulo.articuloid}, 
-            ${articulo.nombre ? `'${articulo.nombre.replace(/'/g, "''")}'` : null},
-            ${articulo.descripcion ? `'${articulo.descripcion.replace(/'/g, "''")}'` : null},
-            ${articulo.unidadmedidastock ? `'${articulo.unidadmedidastock.replace(/'/g, "''")}'` : null},
+            ${articulo.nombre ? `'${escapeSQL(articulo.nombre)}'` : null},
+            ${articulo.descripcion ? `'${escapeSQL(articulo.descripcion)}'` : null},
+            ${articulo.unidadmedidastock ? `'${escapeSQL(articulo.unidadmedidastock)}'` : null},
             ${articulo.sevende !== null ? articulo.sevende : null},
             ${articulo.secompra !== null ? articulo.secompra : null},
             ${articulo.fechadealta ? `'${articulo.fechadealta.toISOString()}'` : null},
@@ -172,7 +174,11 @@ export async function syncProductos() {
 
         await sql.unsafe(query);
         insertados++;
-        console.log(`✅ Artículo ${articulo.articuloid} - ${articulo.nombre} procesado correctamente`);
+        
+        // Log cada 10 artículos para no saturar
+        if (insertados % 10 === 0) {
+          console.log(`✅ Procesados ${insertados} artículos...`);
+        }
         
       } catch (error) {
         errores++;
@@ -181,7 +187,7 @@ export async function syncProductos() {
     }
 
     console.log(`📊 Resumen de sincronización de artículos:`);
-    console.log(`   Insertados/actualizados: ${insertados}`);
+    console.log(`   Procesados: ${insertados}`);
     console.log(`   Errores: ${errores}`);
     console.log('✅ Sincronización de artículos completada');
 
