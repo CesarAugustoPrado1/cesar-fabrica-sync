@@ -1,7 +1,8 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-const atributos = [
+// Lista mínima (la original que funcionaba)
+const atributosMinimos = [
   'ArticuloID',
   'Nombre',
   'Descripcion',
@@ -39,11 +40,11 @@ export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
   try {
-    const atributosXML = atributos.map(attr => 
+    const atributosXML = atributosMinimos.map(attr => 
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
-    // EXACTAMENTE EL MISMO XML QUE FUNCIONÓ EN LA EJECUCIÓN #1
+    // XML con nodo Filtros vacío (para evitar NullReferenceException)
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:art="http://plataforma.net.ar/">
   <soap:Body>
@@ -51,13 +52,12 @@ export async function syncProductos() {
       <art:AtributosVisibles>
         ${atributosXML}
       </art:AtributosVisibles>
+      <art:Filtros />
     </art:ObtenerArticulos>
   </soap:Body>
 </soap:Envelope>`;
 
     console.log('📤 XML enviado:', soapEnvelope);
-
-    console.log('📡 Enviando solicitud SOAP al ERP...');
 
     const response = await fetch(SOAP_URL, {
       method: 'POST',
