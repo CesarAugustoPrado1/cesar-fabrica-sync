@@ -44,6 +44,17 @@ export async function syncProductos() {
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
+    // Filtro fijo: todos los artículos con ArticuloID > 0
+    const filtrosXML = `
+      <Filtros>
+        <Filtro>
+          <Atributo>ArticuloID</Atributo>
+          <Comparador>GreaterThan</Comparador>
+          <Valor>0</Valor>
+        </Filtro>
+      </Filtros>
+    `;
+
     const soapEnvelope = `
       <?xml version="1.0" encoding="utf-8"?>
       <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
@@ -53,11 +64,14 @@ export async function syncProductos() {
             <art:AtributosVisibles>
               ${atributosXML}
             </art:AtributosVisibles>
-            <art:Filtros />
+            ${filtrosXML}
           </art:ObtenerArticulos>
         </soap:Body>
       </soap:Envelope>
     `;
+
+    // Log del XML para depuración
+    console.log('📤 XML enviado:', soapEnvelope);
 
     console.log('📡 Enviando solicitud SOAP al ERP...');
 
