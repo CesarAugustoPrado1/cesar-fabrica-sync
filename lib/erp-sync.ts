@@ -1,8 +1,8 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-// Lista completa de atributos (todos los que quieras)
-const atributos = [
+// --- ATRIBUTOS DE PRODUCTOS (ya los tienes) ---
+const atributosProductos = [
   'ArticuloID',
   'Nombre',
   'Descripcion',
@@ -82,7 +82,52 @@ const atributos = [
   'FechaDeBajaParaVentas'
 ];
 
-const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
+// --- ATRIBUTOS DE CLIENTES ---
+const atributosClientes = [
+  'ClienteID',
+  'Nombre',
+  'NombreLegal',
+  'Domicilio',
+  'Localidad',
+  'CodigoPostal',
+  'Provincia',
+  'ProvinciaNombre',
+  'Pais',
+  'PaisNombre',
+  'Telefono',
+  'Fax',
+  'Email',
+  'Observacion',
+  'CondicionAnteElIVA',
+  'CondicionAnteElIVANombre',
+  'IngresosBrutos',
+  'ContactoDeVenta',
+  'ContactoDeCobros',
+  'CondicionPago',
+  'CondicionPagoNombre',
+  'MonedaUsualCuentaCorriente',
+  'MonedaUsualCuentaCorrienteNombre',
+  'CuentaCliente',
+  'TipoDeCliente',
+  'TipoDeClienteNombre',
+  'ActividadDeCliente',
+  'ActividadDeClienteNombre',
+  'Vendedor',
+  'VendedorNombre',
+  'ZonaDeVenta',
+  'ZonaDeVentaNombre',
+  'Cobrador',
+  'CobradorNombre',
+  'BloqueadoParaNotasDePedido',
+  'BloqueadoParaFacturar',
+  'FechaDeAlta',
+  'FechaDeBaja',
+  'HabilitadoParaConsultasWeb',
+  'FechaUltActualizacion'
+];
+
+const SOAP_URL_PRODUCTOS = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
+const SOAP_URL_CLIENTES = 'http://wspirkastone.pypcloud.net:1881/ServicioCCOCliente.asmx';
 
 function parseFecha(valor: string | null): Date | null {
   if (!valor) return null;
@@ -96,44 +141,64 @@ function parseBooleano(valor: string | null): boolean | null {
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
+function parseNumero(valor: string | null): number | null {
+  if (!valor) return null;
+  const num = parseFloat(valor);
+  return isNaN(num) ? null : num;
+}
+
 function getAttr(node: any, attrName: string): string | null {
   if (!node || !node.$) return null;
   return node.$[attrName] || null;
 }
 
-// Busca todos los nodos que tienen un atributo ArticuloID (o que se llamen Articulo)
-function findAllArticulos(obj: any): any[] {
+function findAllNodes(obj: any, nodeName: string): any[] {
   const results: any[] = [];
   if (!obj) return results;
 
   if (Array.isArray(obj)) {
     for (const item of obj) {
-      results.push(...findAllArticulos(item));
+      results.push(...findAllNodes(item, nodeName));
     }
     return results;
   }
 
   if (typeof obj === 'object') {
-    // Si el objeto tiene un atributo ArticuloID, es un artículo
-    if (obj.$ && obj.$['ArticuloID'] !== undefined) {
-      results.push(obj);
-    }
-    // Si el objeto tiene una clave 'Articulo', extraer su valor (puede ser array u objeto)
-    if (obj['Articulo']) {
-      const articulos = Array.isArray(obj['Articulo']) ? obj['Articulo'] : [obj['Articulo']];
-      for (const art of articulos) {
-        if (art.$ && art.$['ArticuloID'] !== undefined) {
-          results.push(art);
-        } else {
-          // Si no tiene ArticuloID, buscar recursivamente dentro de art
-          results.push(...findAllArticulos(art));
-        }
-      }
+    // Si el objeto tiene la clave exacta
+    if (obj[nodeName]) {
+      const items = Array.isArray(obj[nodeName]) ? obj[nodeName] : [obj[nodeName]];
+      results.push(...items);
     }
     // Buscar recursivamente en todas las propiedades
     for (const key of Object.keys(obj)) {
-      if (key !== 'Articulo' && obj[key] && typeof obj[key] === 'object') {
-        results.push(...findAllArticulos(obj[key]));
+      if (key !== nodeName && obj[key] && typeof obj[key] === 'object') {
+        results.push(...findAllNodes(obj[key], nodeName));
+      }
+    }
+  }
+  return results;
+}
+
+function findNodesWithAttribute(obj: any, attrName: string): any[] {
+  const results: any[] = [];
+  if (!obj) return results;
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      results.push(...findNodesWithAttribute(item, attrName));
+    }
+    return results;
+  }
+
+  if (typeof obj === 'object') {
+    // Si el objeto tiene el atributo buscado, es un nodo válido
+    if (obj.$ && obj.$[attrName] !== undefined) {
+      results.push(obj);
+    }
+    // Buscar recursivamente en todas las propiedades
+    for (const key of Object.keys(obj)) {
+      if (obj[key] && typeof obj[key] === 'object') {
+        results.push(...findNodesWithAttribute(obj[key], attrName));
       }
     }
   }
@@ -141,10 +206,10 @@ function findAllArticulos(obj: any): any[] {
 }
 
 export async function syncProductos() {
-  console.log('🔄 Iniciando sincronización de artículos...');
+  console.log('🔄 Iniciando sincronización de productos...');
 
   try {
-    const atributosXML = atributos.map(attr => 
+    const atributosXML = atributosProductos.map(attr => 
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
@@ -160,9 +225,8 @@ export async function syncProductos() {
   </soap:Body>
 </soap:Envelope>`;
 
-    console.log('📤 XML enviado:', soapEnvelope);
-
-    const response = await fetch(SOAP_URL, {
+    console.log('📤 Enviando solicitud SOAP para productos...');
+    const response = await fetch(SOAP_URL_PRODUCTOS, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
@@ -173,12 +237,12 @@ export async function syncProductos() {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Cuerpo de la respuesta de error:', errorText);
+      console.error('❌ Error HTTP en productos:', errorText);
       throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
     }
 
     const xmlText = await response.text();
-    console.log('✅ Respuesta recibida del ERP');
+    console.log('✅ Respuesta de productos recibida');
 
     const result = await parseStringPromise(xmlText, {
       explicitArray: false,
@@ -189,135 +253,14 @@ export async function syncProductos() {
       trim: true,
     });
 
-    // Buscar todos los artículos en la estructura completa
-    const articulos = findAllArticulos(result);
-    
+    const articulos = findNodesWithAttribute(result, 'ArticuloID');
     if (articulos.length === 0) {
-      console.error('❌ Estructura completa del resultado:', JSON.stringify(result, null, 2));
       throw new Error('No se encontraron artículos en la respuesta');
     }
 
-    console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
-
-    let procesados = 0;
-    let errores = 0;
-
-    for (const item of articulos) {
-      try {
-        const articulo = {
-          articuloid: parseInt(getAttr(item, 'ArticuloID') || '0'),
-          nombre: getAttr(item, 'Nombre'),
-          descripcion: getAttr(item, 'Descripcion'),
-          unidadmedidastock: getAttr(item, 'UnidadDeMedidaDeStock'),
-          sevende: parseBooleano(getAttr(item, 'SeVende')),
-          secompra: parseBooleano(getAttr(item, 'SeCompra')),
-          fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
-          fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
-          clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
-          clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
-          clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
-          clasificacion4articulos: getAttr(item, 'Clasificacion4Articulos'),
-          clasificacion5articulos: getAttr(item, 'Clasificacion5Articulos'),
-          clasificacion6articulos: getAttr(item, 'Clasificacion6Articulos'),
-          clasificacion7articulos: getAttr(item, 'Clasificacion7Articulos'),
-          clasificacion8articulos: getAttr(item, 'Clasificacion8Articulos'),
-          clasificacion9articulos: getAttr(item, 'Clasificacion9Articulos'),
-          clasificacion10articulos: getAttr(item, 'Clasificacion10Articulos'),
-          clasificacion11articulos: getAttr(item, 'Clasificacion11Articulos'),
-          clasificacion12articulos: getAttr(item, 'Clasificacion12Articulos'),
-          clasificacion13articulos: getAttr(item, 'Clasificacion13Articulos'),
-          clasificacion14articulos: getAttr(item, 'Clasificacion14Articulos'),
-          clasificacion15articulos: getAttr(item, 'Clasificacion15Articulos'),
-          clasificacion16articulos: getAttr(item, 'Clasificacion16Articulos'),
-          clasificacion1articulosnombre: getAttr(item, 'Clasificacion1ArticulosNombre'),
-          clasificacion2articulosnombre: getAttr(item, 'Clasificacion2ArticulosNombre'),
-          clasificacion3articulosnombre: getAttr(item, 'Clasificacion3ArticulosNombre'),
-          clasificacion4articulosnombre: getAttr(item, 'Clasificacion4ArticulosNombre'),
-          clasificacion5articulosnombre: getAttr(item, 'Clasificacion5ArticulosNombre'),
-          clasificacion6articulosnombre: getAttr(item, 'Clasificacion6ArticulosNombre'),
-          clasificacion7articulosnombre: getAttr(item, 'Clasificacion7ArticulosNombre'),
-          clasificacion8articulosnombre: getAttr(item, 'Clasificacion8ArticulosNombre'),
-          clasificacion9articulosnombre: getAttr(item, 'Clasificacion9ArticulosNombre'),
-          clasificacion10articulosnombre: getAttr(item, 'Clasificacion10ArticulosNombre'),
-          clasificacion11articulosnombre: getAttr(item, 'Clasificacion11ArticulosNombre'),
-          clasificacion12articulosnombre: getAttr(item, 'Clasificacion12ArticulosNombre'),
-          clasificacion13articulosnombre: getAttr(item, 'Clasificacion13ArticulosNombre'),
-          clasificacion14articulosnombre: getAttr(item, 'Clasificacion14ArticulosNombre'),
-          clasificacion15articulosnombre: getAttr(item, 'Clasificacion15ArticulosNombre'),
-          clasificacion16articulosnombre: getAttr(item, 'Clasificacion16ArticulosNombre'),
-          secontrolastock: parseBooleano(getAttr(item, 'SeControlaStock')),
-          seadministraconpartidas: parseBooleano(getAttr(item, 'SeAdministraConPartidas')),
-          seadministraconnumerosdeserie: parseBooleano(getAttr(item, 'SeAdministraConNumerosDeSerie')),
-          seadministraportalles: parseBooleano(getAttr(item, 'SeAdministraPorTalles')),
-          fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
-          bloqueadoparamovimientosstock: parseBooleano(getAttr(item, 'BloqueadoParaMovimientosDeStock')),
-          generamovimientosstock: parseBooleano(getAttr(item, 'GeneraMovimientosDeStock')),
-          pesoembaladounidadmedidastock: parseFloat(getAttr(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock') || '0'),
-          cantidadunidadmedidastockbulto: parseFloat(getAttr(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto') || '0'),
-          unidadmedidahomogeneastock: getAttr(item, 'UnidadDeMedidaHomogeneaDeStock'),
-          factordeconversionunidadmedidahomogeneastock: parseFloat(getAttr(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock') || '0'),
-          cuentadeactivo: getAttr(item, 'CuentaDeActivo'),
-          seproduce: parseBooleano(getAttr(item, 'SeProduce')),
-          mododeconsumodecomponentes: getAttr(item, 'ModoDeConsumoDeComponentes'),
-          modalidadestockminimo: getAttr(item, 'ModalidadDeStockMinimo'),
-          stockminimoparamodalidadcantidadfija: parseFloat(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija') || '0'),
-          administrapreciopromedioponderado: parseBooleano(getAttr(item, 'AdministraPrecioPromedioPonderado')),
-          ajustacantidadesumstockcalculadasporsistema: parseBooleano(getAttr(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
-          porcentajemaximoajustecantidadumstock: parseFloat(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock') || '0'),
-          secosteaporcierremensual: parseBooleano(getAttr(item, 'SeCosteaPorCierreMensual')),
-          talle: getAttr(item, 'Talle'),
-          color: getAttr(item, 'Color'),
-          divisionparaasientodecosteoporcierre: getAttr(item, 'DivisionParaAsientoDeCosteoPorCierre'),
-          especiedegranooncca: getAttr(item, 'EspecieDeGranoONCCA'),
-          tipodegranooncca: getAttr(item, 'TipoDeGranoONCCA'),
-          variedaddedegrano: getAttr(item, 'VariedadDeGrano'),
-          cuentadeanticipoliquidacioncompracereal: getAttr(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
-          codigodeproductocot: getAttr(item, 'CodigoDeProductoCOT'),
-          unidadmedidacot: getAttr(item, 'UnidadDeMedidaCOT'),
-          factordeconversioncot: parseFloat(getAttr(item, 'FactorDeConversionCOT') || '0'),
-          volumenembaladounidadmedidastock: parseFloat(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock') || '0'),
-          unidadmedidaparadimensionesarticulo: getAttr(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
-          largo: parseFloat(getAttr(item, 'Largo') || '0'),
-          ancho: parseFloat(getAttr(item, 'Ancho') || '0'),
-          alto: parseFloat(getAttr(item, 'Alto') || '0'),
-          bloqueadoparaventa: parseBooleano(getAttr(item, 'BloqueadoParaVenta')),
-          fechadebajaparaventas: parseFecha(getAttr(item, 'FechaDeBajaParaVentas')),
-        };
-
-        // Construir la query dinámicamente para evitar escribir 100 columnas a mano
-        // Pero como ya tenemos la estructura definida, usamos una query fija con todas las columnas.
-        // Para no hacer el código demasiado largo, voy a generar una query con todas las columnas.
-        // Como son muchas, la voy a construir en base al objeto articulo.
-
-        const columns = Object.keys(articulo);
-        const values = columns.map((_, i) => `$${i + 1}`).join(', ');
-        const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
-
-        const query = `
-          INSERT INTO productos (${columns.join(', ')})
-          VALUES (${values})
-          ON CONFLICT (articuloid) DO UPDATE SET
-            ${updateSet},
-            ultima_sincronizacion = CURRENT_TIMESTAMP
-        `;
-
-        await sql(query, Object.values(articulo));
-
-        procesados++;
-        if (procesados % 100 === 0) {
-          console.log(`📊 Procesados ${procesados} artículos...`);
-        }
-
-      } catch (error) {
-        errores++;
-        console.error(`❌ Error procesando artículo:`, error);
-      }
-    }
-
-    console.log(`📊 Resumen:`);
-    console.log(`   Procesados: ${procesados}`);
-    console.log(`   Errores: ${errores}`);
-    console.log('✅ Sincronización completada');
+    console.log(`📦 Productos obtenidos: ${articulos.length}`);
+    await procesarItems(articulos, 'productos', 'ArticuloID');
+    console.log('✅ Sincronización de productos completada');
 
   } catch (error) {
     console.error('❌ Error en syncProductos:', error);
@@ -325,6 +268,140 @@ export async function syncProductos() {
   }
 }
 
+export async function syncClientes() {
+  console.log('🔄 Iniciando sincronización de clientes...');
+
+  try {
+    const atributosXML = atributosClientes.map(attr => 
+      `<ClienteAtributos>${attr}</ClienteAtributos>`
+    ).join('');
+
+    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cli="http://wsplataforma.intecsoft.com.ar/">
+  <soap:Body>
+    <cli:ObtenerClientes>
+      <cli:AtributosVisibles>
+        ${atributosXML}
+      </cli:AtributosVisibles>
+    </cli:ObtenerClientes>
+  </soap:Body>
+</soap:Envelope>`;
+
+    console.log('📤 Enviando solicitud SOAP para clientes...');
+    const response = await fetch(SOAP_URL_CLIENTES, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': 'http://wsplataforma.intecsoft.com.ar/ObtenerClientes',
+      },
+      body: soapEnvelope,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Error HTTP en clientes:', errorText);
+      throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
+    }
+
+    const xmlText = await response.text();
+    console.log('✅ Respuesta de clientes recibida');
+
+    const result = await parseStringPromise(xmlText, {
+      explicitArray: false,
+      mergeAttrs: false,
+      ignoreAttrs: false,
+      attrkey: '$',
+      charkey: '_',
+      trim: true,
+    });
+
+    // Buscar nodos con atributo ClienteID
+    const clientes = findNodesWithAttribute(result, 'ClienteID');
+    if (clientes.length === 0) {
+      console.error('❌ Estructura completa:', JSON.stringify(result, null, 2));
+      throw new Error('No se encontraron clientes en la respuesta');
+    }
+
+    console.log(`📦 Clientes obtenidos: ${clientes.length}`);
+    await procesarItems(clientes, 'clientes', 'ClienteID');
+    console.log('✅ Sincronización de clientes completada');
+
+  } catch (error) {
+    console.error('❌ Error en syncClientes:', error);
+    throw error;
+  }
+}
+
+async function procesarItems(items: any[], tabla: string, idAttr: string) {
+  let procesados = 0;
+  let errores = 0;
+
+  for (const item of items) {
+    try {
+      // Obtener el ID
+      const id = getAttr(item, idAttr);
+      if (!id) {
+        errores++;
+        continue;
+      }
+
+      // Obtener todos los atributos del nodo
+      const attrMap: Record<string, any> = {};
+      if (item.$) {
+        for (const key of Object.keys(item.$)) {
+          const value = item.$[key];
+          // Determinar el tipo de dato según el nombre del atributo
+          if (key.toLowerCase().includes('fecha') || key.toLowerCase().includes('date')) {
+            attrMap[key.toLowerCase()] = parseFecha(value);
+          } else if (key.toLowerCase().includes('bloqueado') || key.toLowerCase().includes('habilitado')) {
+            attrMap[key.toLowerCase()] = parseBooleano(value);
+          } else if (key.toLowerCase().includes('peso') || key.toLowerCase().includes('cantidad') || key.toLowerCase().includes('factor') || key.toLowerCase().includes('stock')) {
+            attrMap[key.toLowerCase()] = parseNumero(value);
+          } else {
+            attrMap[key.toLowerCase()] = value || null;
+          }
+        }
+      }
+
+      // Agregar el ID con el nombre correcto
+      const idField = idAttr.toLowerCase();
+      attrMap[idField] = parseInt(id);
+
+      // Construir la query dinámica
+      const columns = Object.keys(attrMap);
+      if (columns.length === 0) {
+        errores++;
+        continue;
+      }
+
+      const values = columns.map((_, i) => `$${i + 1}`).join(', ');
+      const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+
+      const query = `
+        INSERT INTO ${tabla} (${columns.join(', ')})
+        VALUES (${values})
+        ON CONFLICT (${idField}) DO UPDATE SET
+          ${updateSet},
+          ultima_sincronizacion = CURRENT_TIMESTAMP
+      `;
+
+      await sql(query, Object.values(attrMap));
+      procesados++;
+
+      if (procesados % 100 === 0) {
+        console.log(`📊 Procesados ${procesados} ${tabla}...`);
+      }
+
+    } catch (error) {
+      errores++;
+      console.error(`❌ Error procesando ${tabla}:`, error);
+    }
+  }
+
+  console.log(`📊 Resumen de ${tabla}: Procesados: ${procesados}, Errores: ${errores}`);
+}
+
 export async function syncAll() {
   await syncProductos();
+  await syncClientes();
 }
