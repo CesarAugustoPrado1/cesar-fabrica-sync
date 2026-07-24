@@ -75,6 +75,7 @@ export async function syncProductos() {
 
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida del ERP');
+    console.log('📄 Respuesta completa (primeros 500 caracteres):', xmlText.substring(0, 500));
 
     // Parsear el XML
     const result = await parseStringPromise(xmlText, {
@@ -83,17 +84,30 @@ export async function syncProductos() {
       ignoreAttrs: true,
     });
 
-    // 1. Verificar si hay un soap:Fault
+    // Buscar cualquier nodo que parezca un fault
     const envelope = result['soap:Envelope'] || result['Envelope'] || result;
     const body = envelope['soap:Body'] || envelope['Body'] || envelope;
-    const fault = body['soap:Fault'] || body['Fault'] || body['SOAP-ENV:Fault'];
+    
+    // Buscar fault en varios lugares
+    let fault = body['soap:Fault'] || body['Fault'] || body['SOAP-ENV:Fault'];
+    if (!fault) {
+      // Buscar en cualquier nodo que tenga faultstring
+      const allKeys = Object.keys(body);
+      for (const key of allKeys) {
+        if (key.toLowerCase().includes('fault')) {
+          fault = body[key];
+          break;
+        }
+      }
+    }
+
     if (fault) {
       const faultCode = getTextFromNode(fault, 'faultcode') || 'desconocido';
       const faultString = getTextFromNode(fault, 'faultstring') || 'Error sin descripción';
       throw new Error(`SOAP Fault: ${faultCode} - ${faultString}`);
     }
 
-    // 2. Buscar ObtenerArticulosResponse
+    // Buscar ObtenerArticulosResponse
     const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body;
     const resultNode = responseNode?.['ObtenerArticulosResult']?.[0];
 
@@ -101,7 +115,6 @@ export async function syncProductos() {
       // Si no hay ObtenerArticulosResult, buscar directamente <Articulos> o <Table>
       const articulosNode = body['Articulos'] || body['tns:Articulos'] || body['art:Articulos'];
       if (articulosNode) {
-        // Extraer artículos de <Articulos>
         let articulos = articulosNode['Articulo'] || articulosNode['tns:Articulo'] || articulosNode['art:Articulo'];
         if (!articulos) {
           throw new Error('No se encontraron nodos <Articulo> dentro de <Articulos>');
@@ -112,7 +125,7 @@ export async function syncProductos() {
         return;
       }
 
-      // Buscar <Table> directamente (algunas respuestas no tienen envoltura)
+      // Buscar <Table> directamente
       const tableNode = body['Table'] || body['tns:Table'] || body['art:Table'];
       if (tableNode) {
         const articulos = Array.isArray(tableNode) ? tableNode : [tableNode];
@@ -124,21 +137,20 @@ export async function syncProductos() {
       throw new Error('No se encontró ObtenerArticulosResult ni estructura de artículos en la respuesta');
     }
 
-    // 3. Si tenemos resultNode, buscar <Articulos> o <Table> dentro de él
+    // Si tenemos resultNode, buscar <Articulos> o <Table> dentro de él
     let articulos: any[] = [];
-    const articulosNode = resultNode['Articulos'] || resultNode['tns:Articulos'] || resultNode['art:Articulos'];
-    if (articulosNode) {
-      let raw = articulosNode['Articulo'] || articulosNode['tns:Articulo'] || articulosNode['art:Articulo'];
+    const articulosNode2 = resultNode['Articulos'] || resultNode['tns:Articulos'] || resultNode['art:Articulos'];
+    if (articulosNode2) {
+      let raw = articulosNode2['Articulo'] || articulosNode2['tns:Articulo'] || articulosNode2['art:Articulo'];
       if (raw) {
         articulos = Array.isArray(raw) ? raw : [raw];
       }
     }
 
     if (articulos.length === 0) {
-      // Buscar <Table> dentro de resultNode
-      const tableNode = resultNode['Table'] || resultNode['tns:Table'] || resultNode['art:Table'];
-      if (tableNode) {
-        articulos = Array.isArray(tableNode) ? tableNode : [tableNode];
+      const tableNode2 = resultNode['Table'] || resultNode['tns:Table'] || resultNode['art:Table'];
+      if (tableNode2) {
+        articulos = Array.isArray(tableNode2) ? tableNode2 : [tableNode2];
       }
     }
 
@@ -162,7 +174,6 @@ async function procesarArticulos(articulos: any[]) {
 
   for (const item of articulos) {
     try {
-      // Extraer valores
       const articuloid = parseInt(getTextFromNode(item, 'ArticuloID') || '0');
       const nombre = getTextFromNode(item, 'Nombre');
       const descripcion = getTextFromNode(item, 'Descripcion');
@@ -172,7 +183,6 @@ async function procesarArticulos(articulos: any[]) {
       const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta'));
       const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion'));
 
-      // Insertar o actualizar
       const query = `
         INSERT INTO productos (
           articuloid, nombre, descripcion, unidadmedidastock,
