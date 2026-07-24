@@ -287,25 +287,28 @@ async function syncGenerico({
       `<${nodoItem}Atributos>${attr}</${nodoItem}Atributos>`
     ).join('');
 
+    // ⚠️ CORREGIDO: usar solo soapAction, sin "Obtener" extra
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:art="http://plataforma.net.ar/">
   <soap:Body>
-    <art:Obtener${soapAction}>
+    <art:${soapAction}>
       <art:AtributosVisibles>
         ${atributosXML}
       </art:AtributosVisibles>
       <art:Filtros />
-    </art:Obtener${soapAction}>
+    </art:${soapAction}>
   </soap:Body>
 </soap:Envelope>`;
 
     console.log(`📤 Enviando solicitud SOAP para ${nombre}...`);
+    console.log(`🔹 SOAPAction: http://plataforma.net.ar/${soapAction}`);
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': `http://plataforma.net.ar/Obtener${soapAction}`,
+        // ⚠️ CORREGIDO: usar solo soapAction
+        'SOAPAction': `http://plataforma.net.ar/${soapAction}`,
       },
       body: soapEnvelope,
     });
@@ -377,7 +380,7 @@ async function syncGenerico({
   }
 }
 
-// ========== SINCIONIZAR TODO ==========
+// ========== SINCRONIZAR TODO ==========
 export async function syncAll() {
   await syncProductos();
   await syncClientes();
