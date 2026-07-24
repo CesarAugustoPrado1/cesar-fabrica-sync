@@ -36,6 +36,15 @@ function getTextFromNode(node: any, tagName: string): string | null {
   return child || null;
 }
 
+// Función auxiliar para buscar un nodo en un objeto, probando múltiples nombres
+function findNode(obj: any, ...names: string[]): any {
+  if (!obj) return null;
+  for (const name of names) {
+    if (obj[name]) return obj[name];
+  }
+  return null;
+}
+
 export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
@@ -75,7 +84,6 @@ export async function syncProductos() {
 
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida del ERP');
-    console.log('📄 Respuesta completa (primeros 500 caracteres):', xmlText.substring(0, 500));
 
     // Parsear el XML
     const result = await parseStringPromise(xmlText, {
@@ -84,77 +92,70 @@ export async function syncProductos() {
       ignoreAttrs: true,
     });
 
-    // Buscar cualquier nodo que parezca un fault
-    const envelope = result['soap:Envelope'] || result['Envelope'] || result;
-    const body = envelope['soap:Body'] || envelope['Body'] || envelope;
-    
-    // Buscar fault en varios lugares
-    let fault = body['soap:Fault'] || body['Fault'] || body['SOAP-ENV:Fault'];
-    if (!fault) {
-      // Buscar en cualquier nodo que tenga faultstring
-      const allKeys = Object.keys(body);
-      for (const key of allKeys) {
-        if (key.toLowerCase().includes('fault')) {
-          fault = body[key];
-          break;
-        }
-      }
-    }
-
+    // 1. Verificar si hay un soap:Fault
+    const envelope = findNode(result, 'soap:Envelope', 'Envelope');
+    const body = findNode(envelope, 'soap:Body', 'Body');
+    const fault = findNode(body, 'soap:Fault', 'Fault', 'SOAP-ENV:Fault');
     if (fault) {
       const faultCode = getTextFromNode(fault, 'faultcode') || 'desconocido';
       const faultString = getTextFromNode(fault, 'faultstring') || 'Error sin descripción';
       throw new Error(`SOAP Fault: ${faultCode} - ${faultString}`);
     }
 
-    // Buscar ObtenerArticulosResponse
-    const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body;
-    const resultNode = responseNode?.['ObtenerArticulosResult']?.[0];
-
-    if (!resultNode) {
-      // Si no hay ObtenerArticulosResult, buscar directamente <Articulos> o <Table>
-      const articulosNode = body['Articulos'] || body['tns:Articulos'] || body['art:Articulos'];
-      if (articulosNode) {
-        let articulos = articulosNode['Articulo'] || articulosNode['tns:Articulo'] || articulosNode['art:Articulo'];
-        if (!articulos) {
-          throw new Error('No se encontraron nodos <Articulo> dentro de <Articulos>');
-        }
-        if (!Array.isArray(articulos)) articulos = [articulos];
-        console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
-        await procesarArticulos(articulos);
-        return;
-      }
-
-      // Buscar <Table> directamente
-      const tableNode = body['Table'] || body['tns:Table'] || body['art:Table'];
-      if (tableNode) {
-        const articulos = Array.isArray(tableNode) ? tableNode : [tableNode];
-        console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
-        await procesarArticulos(articulos);
-        return;
-      }
-
-      throw new Error('No se encontró ObtenerArticulosResult ni estructura de artículos en la respuesta');
+    // 2. Buscar ObtenerArticulosResponse (sin prefijo)
+    let responseNode = findNode(body, 'ObtenerArticulosResponse', 'tns:ObtenerArticulosResponse', 'art:ObtenerArticulosResponse');
+    if (!responseNode) {
+      // Si no hay ObtenerArticulosResponse, buscar directamente en body
+      responseNode = body;
     }
 
-    // Si tenemos resultNode, buscar <Articulos> o <Table> dentro de él
+    // 3. Buscar ObtenerArticulosResult (dentro del responseNode)
+    let resultNode = findNode(responseNode, 'ObtenerArticulosResult', 'tns:ObtenerArticulosResult', 'art:ObtenerArticulosResult');
+    if (!resultNode) {
+      // Si no hay Result, buscar directamente en el body (sin envoltura)
+      resultNode = body;
+    }
+
+    // 4. Buscar Articulos (puede estar en resultNode o directamente)
+    let articulosNode = findNode(resultNode, 'Articulos', 'tns:Articulos', 'art:Articulos');
+    if (!articulosNode) {
+      // Si no hay Articulos, buscar en el nivel superior (body)
+      articulosNode = findNode(body, 'Articulos', 'tns:Articulos', 'art:Articulos');
+    }
+
     let articulos: any[] = [];
-    const articulosNode2 = resultNode['Articulos'] || resultNode['tns:Articulos'] || resultNode['art:Articulos'];
-    if (articulosNode2) {
-      let raw = articulosNode2['Articulo'] || articulosNode2['tns:Articulo'] || articulosNode2['art:Articulo'];
+    if (articulosNode) {
+      // Extraer los nodos Articulo
+      let raw = findNode(articulosNode, 'Articulo', 'tns:Articulo', 'art:Articulo');
+      if (raw) {
+        articulos = Array.isArray(raw) ? raw : [raw];
+      }
+    }
+
+    // 5. Si no se encontraron Articulos, intentar buscar directamente en el body
+    if (articulos.length === 0) {
+      const raw = findNode(body, 'Articulo', 'tns:Articulo', 'art:Articulo');
       if (raw) {
         articulos = Array.isArray(raw) ? raw : [raw];
       }
     }
 
     if (articulos.length === 0) {
-      const tableNode2 = resultNode['Table'] || resultNode['tns:Table'] || resultNode['art:Table'];
-      if (tableNode2) {
-        articulos = Array.isArray(tableNode2) ? tableNode2 : [tableNode2];
+      // Último intento: buscar cualquier nodo que tenga atributo ArticuloID
+      const allKeys = Object.keys(body);
+      for (const key of allKeys) {
+        if (key.toLowerCase().includes('articulo')) {
+          const candidate = body[key];
+          if (Array.isArray(candidate)) {
+            articulos = candidate;
+            break;
+          }
+        }
       }
     }
 
     if (articulos.length === 0) {
+      console.error('📄 Respuesta completa (primeros 500 caracteres):', xmlText.substring(0, 500));
       throw new Error('No se encontraron artículos en la respuesta');
     }
 
@@ -174,15 +175,23 @@ async function procesarArticulos(articulos: any[]) {
 
   for (const item of articulos) {
     try {
-      const articuloid = parseInt(getTextFromNode(item, 'ArticuloID') || '0');
-      const nombre = getTextFromNode(item, 'Nombre');
-      const descripcion = getTextFromNode(item, 'Descripcion');
-      const unidadmedidastock = getTextFromNode(item, 'UnidadDeMedidaDeStock');
-      const sevende = parseBooleano(getTextFromNode(item, 'SeVende'));
-      const secompra = parseBooleano(getTextFromNode(item, 'SeCompra'));
-      const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta'));
-      const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion'));
+      // Ahora los atributos de Articulo pueden estar como elementos o como atributos
+      // Usamos getTextFromNode que busca elementos, y si no, intentamos con atributos
+      let articuloid = parseInt(getTextFromNode(item, 'ArticuloID') || (item['$']?.['ArticuloID']) || '0');
+      if (!articuloid || isNaN(articuloid)) {
+        // Si el ID está en el atributo del nodo raíz
+        articuloid = parseInt(item['$']?.['ArticuloID'] || '0');
+      }
 
+      const nombre = getTextFromNode(item, 'Nombre') || item['$']?.['Nombre'] || null;
+      const descripcion = getTextFromNode(item, 'Descripcion') || item['$']?.['Descripcion'] || null;
+      const unidadmedidastock = getTextFromNode(item, 'UnidadDeMedidaDeStock') || item['$']?.['UnidadDeMedidaDeStock'] || null;
+      const sevende = parseBooleano(getTextFromNode(item, 'SeVende') || item['$']?.['SeVende']);
+      const secompra = parseBooleano(getTextFromNode(item, 'SeCompra') || item['$']?.['SeCompra']);
+      const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta') || item['$']?.['FechaDeAlta']);
+      const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion') || item['$']?.['FechaUltActualizacion']);
+
+      // Insertar o actualizar
       const query = `
         INSERT INTO productos (
           articuloid, nombre, descripcion, unidadmedidastock,
