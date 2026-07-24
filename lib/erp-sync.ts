@@ -45,29 +45,38 @@ function getAttr(node: any, attrName: string): string | null {
   return node.$[attrName] || null;
 }
 
-function findNode(obj: any, nodeName: string): any | null {
-  if (!obj) return null;
-  if (Array.isArray(obj)) {
-    for (const item of obj) {
-      const found = findNode(item, nodeName);
-      if (found) return found;
+// Buscar nodos por nombre en toda la estructura, devuelve un array
+function findNodes(obj: any, nodeName: string): any[] {
+  const results: any[] = [];
+  if (!obj) return results;
+
+  function search(node: any) {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        search(item);
+      }
+      return;
     }
-    return null;
-  }
-  if (typeof obj === 'object') {
-    for (const key of Object.keys(obj)) {
-      if (key === nodeName || key.includes(nodeName) || key.endsWith(nodeName)) {
-        return obj[key];
+    if (typeof node === 'object') {
+      for (const key of Object.keys(node)) {
+        if (key === nodeName) {
+          // Si el valor es un array, agregar todos sus elementos
+          if (Array.isArray(node[key])) {
+            results.push(...node[key]);
+          } else {
+            results.push(node[key]);
+          }
+        }
+        if (node[key] && typeof node[key] === 'object') {
+          search(node[key]);
+        }
       }
     }
-    for (const key of Object.keys(obj)) {
-      if (obj[key] && typeof obj[key] === 'object') {
-        const found = findNode(obj[key], nodeName);
-        if (found) return found;
-      }
-    }
   }
-  return null;
+
+  search(obj);
+  return results;
 }
 
 export async function syncProductos() {
@@ -119,20 +128,12 @@ export async function syncProductos() {
       trim: true,
     });
 
-    const articulosNode = findNode(result, 'Articulos');
-    if (!articulosNode) {
+    // Buscar todos los nodos Articulo en toda la estructura
+    const articulos = findNodes(result, 'Articulo');
+
+    if (articulos.length === 0) {
       console.error('❌ Estructura completa del resultado:', JSON.stringify(result, null, 2));
-      throw new Error('No se encontró el nodo Articulos en la respuesta');
-    }
-
-    let articulos = articulosNode['Articulo'] || articulosNode['tns:Articulo'];
-    if (!articulos) {
-      console.error('❌ Claves en articulosNode:', Object.keys(articulosNode));
-      throw new Error('No se encontraron nodos Articulo dentro de Articulos');
-    }
-
-    if (!Array.isArray(articulos)) {
-      articulos = [articulos];
+      throw new Error('No se encontraron nodos Articulo en la respuesta');
     }
 
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
