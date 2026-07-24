@@ -1,6 +1,7 @@
 import { sql } from './db';
+import { parseStringPromise } from 'xml2js';
 
-// Lista MÍNIMA (la original que funcionaba con 1,118 artículos)
+// Lista MÍNIMA (la original que funcionaba)
 const atributosMinimos = [
   'ArticuloID',
   'Nombre',
@@ -12,24 +13,20 @@ const atributosMinimos = [
   'FechaUltActualizacion'
 ];
 
-// URL del servicio SOAP
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
 
-// Función auxiliar para parsear fechas
 function parseFecha(valor: string | null): Date | null {
   if (!valor) return null;
   const fecha = new Date(valor);
   return isNaN(fecha.getTime()) ? null : fecha;
 }
 
-// Función auxiliar para parsear booleanos
 function parseBooleano(valor: string | null): boolean | null {
   if (!valor) return null;
   const lower = valor.toLowerCase();
   return lower === 'true' || lower === '1' || lower === 'sí' || lower === 'si' || lower === 'yes';
 }
 
-// Función para obtener el valor de un nodo XML
 function getTextFromNode(node: any, tagName: string): string | null {
   if (!node) return null;
   const child = node[tagName];
@@ -43,7 +40,6 @@ export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
   try {
-    // 1. Construir el SOAP envelope con atributos mínimos y Filtros vacío
     const atributosXML = atributosMinimos.map(attr => 
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
@@ -65,7 +61,6 @@ export async function syncProductos() {
 
     console.log('📡 Enviando solicitud SOAP al ERP...');
 
-    // 2. Hacer la solicitud HTTP
     const response = await fetch(SOAP_URL, {
       method: 'POST',
       headers: {
@@ -84,35 +79,27 @@ export async function syncProductos() {
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida del ERP');
 
-    // 3. Parsear el XML de respuesta
-    const { parseStringPromise } = await import('xml2js');
-    
     const result = await parseStringPromise(xmlText, {
       explicitArray: true,
       mergeAttrs: false,
       ignoreAttrs: true,
     });
 
-    // 4. Navegar hasta los artículos (maneja ambas estructuras: con y sin NewDataSet)
     let articulos: any[] = [];
     
     try {
-      // Buscar el nodo ObtenerArticulosResponse
       const envelope = result['soap:Envelope'] || result;
       const body = envelope['soap:Body'] || envelope['s:Body'] || envelope;
       const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body;
       
-      // Obtener el resultado
       let resultNode = responseNode?.['ObtenerArticulosResult']?.[0];
       if (!resultNode) {
-        // Si no hay ObtenerArticulosResult, buscar directamente Table
         if (responseNode?.['Table']) {
           articulos = responseNode['Table'];
         } else {
           throw new Error('No se encontró ObtenerArticulosResult ni Table en la respuesta');
         }
       } else {
-        // Buscar NewDataSet -> Table
         const newDataSet = resultNode['NewDataSet']?.[0];
         if (newDataSet?.['Table']) {
           articulos = newDataSet['Table'];
@@ -129,7 +116,6 @@ export async function syncProductos() {
 
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
 
-    // 5. Procesar cada artículo
     let procesados = 0;
     let errores = 0;
 
@@ -146,7 +132,6 @@ export async function syncProductos() {
           fechaultactualizacion: parseFecha(getTextFromNode(item, 'FechaUltActualizacion')),
         };
 
-        // 6. Insertar o actualizar con SQL seguro
         const query = `
           INSERT INTO productos (
             articuloid, nombre, descripcion, unidadmedidastock,
@@ -186,10 +171,10 @@ export async function syncProductos() {
       }
     }
 
-    console.log(`📊 Resumen de sincronización de artículos:`);
+    console.log(`📊 Resumen:`);
     console.log(`   Procesados: ${procesados}`);
     console.log(`   Errores: ${errores}`);
-    console.log('✅ Sincronización de artículos completada');
+    console.log('✅ Sincronización completada');
 
   } catch (error) {
     console.error('❌ Error en syncProductos:', error);
