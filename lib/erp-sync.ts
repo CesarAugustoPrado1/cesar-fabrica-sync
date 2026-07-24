@@ -76,107 +76,142 @@ export async function syncProductos() {
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida del ERP');
 
+    // Parsear el XML
     const result = await parseStringPromise(xmlText, {
       explicitArray: true,
       mergeAttrs: false,
       ignoreAttrs: true,
     });
 
-    let articulos: any[] = [];
-    
-    try {
-      const envelope = result['soap:Envelope'] || result;
-      const body = envelope['soap:Body'] || envelope['s:Body'] || envelope;
-      const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body;
-      
-      let resultNode = responseNode?.['ObtenerArticulosResult']?.[0];
-      if (!resultNode) {
-        if (responseNode?.['Table']) {
-          articulos = responseNode['Table'];
-        } else {
-          throw new Error('No se encontró ObtenerArticulosResult ni Table en la respuesta');
-        }
-      } else {
-        const newDataSet = resultNode['NewDataSet']?.[0];
-        if (newDataSet?.['Table']) {
-          articulos = newDataSet['Table'];
-        } else if (resultNode['Table']) {
-          articulos = resultNode['Table'];
-        } else {
-          throw new Error('No se encontraron artículos en la respuesta');
-        }
+    // 1. Navegar hasta ObtenerArticulosResult
+    const envelope = result['soap:Envelope'] || result;
+    const body = envelope['soap:Body'] || envelope['s:Body'] || envelope;
+    const responseNode = body['ObtenerArticulosResponse'] || body['tns:ObtenerArticulosResponse'] || body;
+    const resultNode = responseNode?.['ObtenerArticulosResult']?.[0];
+
+    if (!resultNode) {
+      throw new Error('No se encontró el nodo ObtenerArticulosResult en la respuesta');
+    }
+
+    // 2. Buscar el nodo <Articulos> (puede ser con o sin namespace)
+    const articulosNode = resultNode['Articulos'] || resultNode['art:Articulos'] || resultNode['tns:Articulos'];
+    if (!articulosNode) {
+      // Si no hay Articulos, intentar buscar directamente los <Articulo> en resultNode
+      let articulosRaw = resultNode['Articulo'];
+      if (!articulosRaw) {
+        // Último intento: buscar en el nivel superior (algunas respuestas no tienen Articulos)
+        articulosRaw = resultNode['Table'] || resultNode['NewDataSet']?.[0]?.['Table'];
       }
-    } catch (err) {
-      console.error('Error al parsear la estructura del XML:', err);
-      throw err;
+      if (!articulosRaw) {
+        throw new Error('No se encontraron artículos en la respuesta');
+      }
+      // Si es un array, usarlo directamente
+      const articulos = Array.isArray(articulosRaw) ? articulosRaw : [articulosRaw];
+      console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
+      await procesarArticulos(articulos);
+      return;
+    }
+
+    // 3. Extraer los artículos del nodo Articulos
+    // El nodo Articulos puede tener elementos <Articulo> directamente
+    let articulos = articulosNode['Articulo'];
+    if (!articulos) {
+      // Si no hay Articulo dentro de Articulos, intentar buscar en el nivel superior
+      articulos = resultNode['Articulo'] || resultNode['Table'];
+    }
+
+    if (!articulos) {
+      throw new Error('No se encontraron artículos en la respuesta');
+    }
+
+    // Asegurar que es un array
+    if (!Array.isArray(articulos)) {
+      articulos = [articulos];
     }
 
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
 
-    let procesados = 0;
-    let errores = 0;
-
-    for (const item of articulos) {
-      try {
-        const articulo = {
-          articuloid: parseInt(getTextFromNode(item, 'ArticuloID') || '0'),
-          nombre: getTextFromNode(item, 'Nombre'),
-          descripcion: getTextFromNode(item, 'Descripcion'),
-          unidadmedidastock: getTextFromNode(item, 'UnidadDeMedidaDeStock'),
-          sevende: parseBooleano(getTextFromNode(item, 'SeVende')),
-          secompra: parseBooleano(getTextFromNode(item, 'SeCompra')),
-          fechadealta: parseFecha(getTextFromNode(item, 'FechaDeAlta')),
-          fechaultactualizacion: parseFecha(getTextFromNode(item, 'FechaUltActualizacion')),
-        };
-
-        const query = `
-          INSERT INTO productos (
-            articuloid, nombre, descripcion, unidadmedidastock,
-            sevende, secompra, fechadealta, fechaultactualizacion,
-            ultima_sincronizacion
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-          ON CONFLICT (articuloid) DO UPDATE SET
-            nombre = EXCLUDED.nombre,
-            descripcion = EXCLUDED.descripcion,
-            unidadmedidastock = EXCLUDED.unidadmedidastock,
-            sevende = EXCLUDED.sevende,
-            secompra = EXCLUDED.secompra,
-            fechadealta = EXCLUDED.fechadealta,
-            fechaultactualizacion = EXCLUDED.fechaultactualizacion,
-            ultima_sincronizacion = CURRENT_TIMESTAMP
-        `;
-
-        await sql(query, [
-          articulo.articuloid,
-          articulo.nombre,
-          articulo.descripcion,
-          articulo.unidadmedidastock,
-          articulo.sevende,
-          articulo.secompra,
-          articulo.fechadealta,
-          articulo.fechaultactualizacion
-        ]);
-
-        procesados++;
-        if (procesados % 100 === 0) {
-          console.log(`📊 Procesados ${procesados} artículos...`);
-        }
-        
-      } catch (error) {
-        errores++;
-        console.error(`❌ Error procesando artículo:`, error);
-      }
-    }
-
-    console.log(`📊 Resumen:`);
-    console.log(`   Procesados: ${procesados}`);
-    console.log(`   Errores: ${errores}`);
-    console.log('✅ Sincronización completada');
+    await procesarArticulos(articulos);
 
   } catch (error) {
     console.error('❌ Error en syncProductos:', error);
     throw error;
   }
+}
+
+// Función auxiliar para procesar los artículos
+async function procesarArticulos(articulos: any[]) {
+  let procesados = 0;
+  let errores = 0;
+
+  for (const item of articulos) {
+    try {
+      // Extraer valores
+      const articuloid = parseInt(getTextFromNode(item, 'ArticuloID') || '0');
+      const nombre = getTextFromNode(item, 'Nombre');
+      const descripcion = getTextFromNode(item, 'Descripcion');
+      const unidadmedidastock = getTextFromNode(item, 'UnidadDeMedidaDeStock');
+      const sevende = parseBooleano(getTextFromNode(item, 'SeVende'));
+      const secompra = parseBooleano(getTextFromNode(item, 'SeCompra'));
+      const fechadealta = parseFecha(getTextFromNode(item, 'FechaDeAlta'));
+      const fechaultactualizacion = parseFecha(getTextFromNode(item, 'FechaUltActualizacion'));
+
+      // Construir el objeto articulo (solo columnas que existen en la tabla)
+      const articulo = {
+        articuloid,
+        nombre,
+        descripcion,
+        unidadmedidastock,
+        sevende,
+        secompra,
+        fechadealta,
+        fechaultactualizacion,
+      };
+
+      // Insertar o actualizar
+      const query = `
+        INSERT INTO productos (
+          articuloid, nombre, descripcion, unidadmedidastock,
+          sevende, secompra, fechadealta, fechaultactualizacion,
+          ultima_sincronizacion
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+        ON CONFLICT (articuloid) DO UPDATE SET
+          nombre = EXCLUDED.nombre,
+          descripcion = EXCLUDED.descripcion,
+          unidadmedidastock = EXCLUDED.unidadmedidastock,
+          sevende = EXCLUDED.sevende,
+          secompra = EXCLUDED.secompra,
+          fechadealta = EXCLUDED.fechadealta,
+          fechaultactualizacion = EXCLUDED.fechaultactualizacion,
+          ultima_sincronizacion = CURRENT_TIMESTAMP
+      `;
+
+      await sql(query, [
+        articulo.articuloid,
+        articulo.nombre,
+        articulo.descripcion,
+        articulo.unidadmedidastock,
+        articulo.sevende,
+        articulo.secompra,
+        articulo.fechadealta,
+        articulo.fechaultactualizacion
+      ]);
+
+      procesados++;
+      if (procesados % 100 === 0) {
+        console.log(`📊 Procesados ${procesados} artículos...`);
+      }
+
+    } catch (error) {
+      errores++;
+      console.error(`❌ Error procesando artículo:`, error);
+    }
+  }
+
+  console.log(`📊 Resumen:`);
+  console.log(`   Procesados: ${procesados}`);
+  console.log(`   Errores: ${errores}`);
+  console.log('✅ Sincronización completada');
 }
 
 export async function syncAll() {
