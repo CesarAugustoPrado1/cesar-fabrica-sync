@@ -1,8 +1,8 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-// Lista mínima (la original que funcionaba)
-const atributosMinimos = [
+// Lista con atributos mínimos + 8 clasificaciones
+const atributosBasicos = [
   'ArticuloID',
   'Nombre',
   'Descripcion',
@@ -12,6 +12,19 @@ const atributosMinimos = [
   'FechaDeAlta',
   'FechaUltActualizacion'
 ];
+
+const atributosClasificaciones = [
+  'Clasificacion1Articulos',
+  'Clasificacion2Articulos',
+  'Clasificacion3Articulos',
+  'Clasificacion4Articulos',
+  'Clasificacion5Articulos',
+  'Clasificacion6Articulos',
+  'Clasificacion7Articulos',
+  'Clasificacion8Articulos'
+];
+
+const atributos = [...atributosBasicos, ...atributosClasificaciones];
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
 
@@ -32,11 +45,36 @@ function getAttr(node: any, attrName: string): string | null {
   return node.$[attrName] || null;
 }
 
+function findNode(obj: any, nodeName: string): any | null {
+  if (!obj) return null;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = findNode(item, nodeName);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof obj === 'object') {
+    for (const key of Object.keys(obj)) {
+      if (key === nodeName || key.includes(nodeName) || key.endsWith(nodeName)) {
+        return obj[key];
+      }
+    }
+    for (const key of Object.keys(obj)) {
+      if (obj[key] && typeof obj[key] === 'object') {
+        const found = findNode(obj[key], nodeName);
+        if (found) return found;
+      }
+    }
+  }
+  return null;
+}
+
 export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
   try {
-    const atributosXML = atributosMinimos.map(attr => 
+    const atributosXML = atributos.map(attr => 
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
@@ -72,55 +110,21 @@ export async function syncProductos() {
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida del ERP');
 
-    // Parsear el XML con opciones más flexibles
     const result = await parseStringPromise(xmlText, {
-      explicitArray: false,  // Evita arrays innecesarios
+      explicitArray: false,
       mergeAttrs: false,
       ignoreAttrs: false,
-      attrkey: '$',          // Atributos van en $
-      charkey: '_',          // Texto de nodos va en _
+      attrkey: '$',
+      charkey: '_',
       trim: true,
     });
 
-    // 1. Obtener el Body
-    const envelope = result['soap:Envelope'] || result['Envelope'] || result;
-    const body = envelope['soap:Body'] || envelope['Body'] || envelope;
-
-    // Si body es un array, tomar el primer elemento
-    const bodyObj = Array.isArray(body) ? body[0] : body;
-
-    // 2. Buscar ObtenerArticulosResponse de forma flexible
-    let responseNode = null;
-    const keys = Object.keys(bodyObj);
-    console.log('🔑 Claves en body:', keys);
-
-    // Buscar cualquier clave que contenga 'ObtenerArticulosResponse'
-    for (const key of keys) {
-      if (key.includes('ObtenerArticulosResponse')) {
-        responseNode = bodyObj[key];
-        break;
-      }
-    }
-
-    if (!responseNode) {
-      throw new Error('No se encontró ObtenerArticulosResponse en la respuesta');
-    }
-
-    // 3. Obtener ObtenerArticulosResult
-    const resultNode = responseNode['ObtenerArticulosResult'] || responseNode['tns:ObtenerArticulosResult'];
-    if (!resultNode) {
-      console.error('❌ Claves en responseNode:', Object.keys(responseNode));
-      throw new Error('No se encontró ObtenerArticulosResult en la respuesta');
-    }
-
-    // 4. Obtener Articulos
-    const articulosNode = resultNode['Articulos'] || resultNode['tns:Articulos'];
+    const articulosNode = findNode(result, 'Articulos');
     if (!articulosNode) {
-      console.error('❌ Claves en resultNode:', Object.keys(resultNode));
-      throw new Error('No se encontró Articulos en la respuesta');
+      console.error('❌ Estructura completa del resultado:', JSON.stringify(result, null, 2));
+      throw new Error('No se encontró el nodo Articulos en la respuesta');
     }
 
-    // 5. Extraer los artículos
     let articulos = articulosNode['Articulo'] || articulosNode['tns:Articulo'];
     if (!articulos) {
       console.error('❌ Claves en articulosNode:', Object.keys(articulosNode));
@@ -133,27 +137,40 @@ export async function syncProductos() {
 
     console.log(`📦 Artículos obtenidos del ERP: ${articulos.length}`);
 
-    // Procesar los artículos
     let procesados = 0;
     let errores = 0;
 
     for (const item of articulos) {
       try {
-        const articuloid = parseInt(getAttr(item, 'ArticuloID') || '0');
-        const nombre = getAttr(item, 'Nombre');
-        const descripcion = getAttr(item, 'Descripcion');
-        const unidadmedidastock = getAttr(item, 'UnidadDeMedidaDeStock');
-        const sevende = parseBooleano(getAttr(item, 'SeVende'));
-        const secompra = parseBooleano(getAttr(item, 'SeCompra'));
-        const fechadealta = parseFecha(getAttr(item, 'FechaDeAlta'));
-        const fechaultactualizacion = parseFecha(getAttr(item, 'FechaUltActualizacion'));
+        const articulo = {
+          articuloid: parseInt(getAttr(item, 'ArticuloID') || '0'),
+          nombre: getAttr(item, 'Nombre'),
+          descripcion: getAttr(item, 'Descripcion'),
+          unidadmedidastock: getAttr(item, 'UnidadDeMedidaDeStock'),
+          sevende: parseBooleano(getAttr(item, 'SeVende')),
+          secompra: parseBooleano(getAttr(item, 'SeCompra')),
+          fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
+          fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
+          clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
+          clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
+          clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
+          clasificacion4articulos: getAttr(item, 'Clasificacion4Articulos'),
+          clasificacion5articulos: getAttr(item, 'Clasificacion5Articulos'),
+          clasificacion6articulos: getAttr(item, 'Clasificacion6Articulos'),
+          clasificacion7articulos: getAttr(item, 'Clasificacion7Articulos'),
+          clasificacion8articulos: getAttr(item, 'Clasificacion8Articulos'),
+        };
 
         const query = `
           INSERT INTO productos (
             articuloid, nombre, descripcion, unidadmedidastock,
             sevende, secompra, fechadealta, fechaultactualizacion,
+            clasificacion1articulos, clasificacion2articulos,
+            clasificacion3articulos, clasificacion4articulos,
+            clasificacion5articulos, clasificacion6articulos,
+            clasificacion7articulos, clasificacion8articulos,
             ultima_sincronizacion
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)
           ON CONFLICT (articuloid) DO UPDATE SET
             nombre = EXCLUDED.nombre,
             descripcion = EXCLUDED.descripcion,
@@ -162,18 +179,34 @@ export async function syncProductos() {
             secompra = EXCLUDED.secompra,
             fechadealta = EXCLUDED.fechadealta,
             fechaultactualizacion = EXCLUDED.fechaultactualizacion,
+            clasificacion1articulos = EXCLUDED.clasificacion1articulos,
+            clasificacion2articulos = EXCLUDED.clasificacion2articulos,
+            clasificacion3articulos = EXCLUDED.clasificacion3articulos,
+            clasificacion4articulos = EXCLUDED.clasificacion4articulos,
+            clasificacion5articulos = EXCLUDED.clasificacion5articulos,
+            clasificacion6articulos = EXCLUDED.clasificacion6articulos,
+            clasificacion7articulos = EXCLUDED.clasificacion7articulos,
+            clasificacion8articulos = EXCLUDED.clasificacion8articulos,
             ultima_sincronizacion = CURRENT_TIMESTAMP
         `;
 
         await sql(query, [
-          articuloid,
-          nombre,
-          descripcion,
-          unidadmedidastock,
-          sevende,
-          secompra,
-          fechadealta,
-          fechaultactualizacion
+          articulo.articuloid,
+          articulo.nombre,
+          articulo.descripcion,
+          articulo.unidadmedidastock,
+          articulo.sevende,
+          articulo.secompra,
+          articulo.fechadealta,
+          articulo.fechaultactualizacion,
+          articulo.clasificacion1articulos,
+          articulo.clasificacion2articulos,
+          articulo.clasificacion3articulos,
+          articulo.clasificacion4articulos,
+          articulo.clasificacion5articulos,
+          articulo.clasificacion6articulos,
+          articulo.clasificacion7articulos,
+          articulo.clasificacion8articulos,
         ]);
 
         procesados++;
