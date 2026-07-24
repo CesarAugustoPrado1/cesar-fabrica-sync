@@ -1,8 +1,7 @@
 import { sql } from './db';
 import { parseStringPromise } from 'xml2js';
 
-// Lista MÍNIMA (la original que funcionaba con 1,118 artículos)
-const atributosMinimos = [
+const atributos = [
   'ArticuloID',
   'Nombre',
   'Descripcion',
@@ -40,11 +39,11 @@ export async function syncProductos() {
   console.log('🔄 Iniciando sincronización de artículos...');
 
   try {
-    const atributosXML = atributosMinimos.map(attr => 
+    const atributosXML = atributos.map(attr => 
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
-    // Construcción del XML SIN el nodo Filtros (para evitar el error NullReferenceException)
+    // EXACTAMENTE EL MISMO XML QUE FUNCIONÓ EN LA EJECUCIÓN #1
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:art="http://plataforma.net.ar/">
   <soap:Body>
