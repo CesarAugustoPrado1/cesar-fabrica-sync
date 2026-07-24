@@ -43,7 +43,7 @@ export async function syncProductos() {
       `<ArticuloAtributos>${attr}</ArticuloAtributos>`
     ).join('');
 
-    // Filtro fijo: todos los artículos con ArticuloID > 0 (SIN NAMESPACE)
+    // Filtro con ArticuloID > 0 (para evitar error de referencia nula)
     const filtrosXML = `
       <Filtros>
         <Filtro>
@@ -54,20 +54,18 @@ export async function syncProductos() {
       </Filtros>
     `;
 
-    const soapEnvelope = `
-      <?xml version="1.0" encoding="utf-8"?>
-      <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
-                     xmlns:art="http://plataforma.net.ar/">
-        <soap:Body>
-          <art:ObtenerArticulos>
-            <art:AtributosVisibles>
-              ${atributosXML}
-            </art:AtributosVisibles>
-            ${filtrosXML}
-          </art:ObtenerArticulos>
-        </soap:Body>
-      </soap:Envelope>
-    `;
+    // Construcción del XML SIN espacios extra ni saltos de línea problemáticos
+    const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:art="http://plataforma.net.ar/">
+  <soap:Body>
+    <art:ObtenerArticulos>
+      <art:AtributosVisibles>
+        ${atributosXML}
+      </art:AtributosVisibles>
+      ${filtrosXML}
+    </art:ObtenerArticulos>
+  </soap:Body>
+</soap:Envelope>`;
 
     console.log('📤 XML enviado:', soapEnvelope);
 
