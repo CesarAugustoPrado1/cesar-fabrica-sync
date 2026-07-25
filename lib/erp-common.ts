@@ -24,6 +24,7 @@ export function getAttr(node: any, attrName: string): string | null {
   return node.$[attrName] || null;
 }
 
+// Función mejorada para buscar nodos con nombre exacto o que terminen en itemName
 export function findAllItems(obj: any, itemName: string, idAttr: string): any[] {
   const results: any[] = [];
   if (!obj) return results;
@@ -36,22 +37,49 @@ export function findAllItems(obj: any, itemName: string, idAttr: string): any[] 
   }
 
   if (typeof obj === 'object') {
+    // Caso 1: El objeto tiene un atributo con el id (ej. $: { ClienteID: "123" })
     if (obj.$ && obj.$[idAttr] !== undefined) {
       results.push(obj);
     }
-    if (obj[itemName]) {
-      const items = Array.isArray(obj[itemName]) ? obj[itemName] : [obj[itemName]];
-      for (const it of items) {
-        if (it.$ && it.$[idAttr] !== undefined) {
-          results.push(it);
-        } else {
-          results.push(...findAllItems(it, itemName, idAttr));
+
+    // Caso 2: El objeto tiene un hijo que es el id (ej. <ClienteID>123</ClienteID>)
+    if (obj[idAttr] !== undefined) {
+      // Crear un objeto con atributo para consistencia
+      const newItem = { $: {} };
+      newItem.$[idAttr] = obj[idAttr];
+      // Copiar el resto de las propiedades como hijos (por si acaso)
+      for (const key of Object.keys(obj)) {
+        if (key !== idAttr) {
+          newItem[key] = obj[key];
+        }
+      }
+      results.push(newItem);
+    }
+
+    // Caso 3: Buscar en claves que coincidan exactamente con itemName o terminen en itemName
+    for (const key of Object.keys(obj)) {
+      // Si la clave es itemName o termina en itemName (ej. 'Cliente' o 'tns:Cliente')
+      if (key === itemName || key.endsWith(itemName) || key.includes(':' + itemName)) {
+        const items = Array.isArray(obj[key]) ? obj[key] : [obj[key]];
+        for (const it of items) {
+          // Si el item ya tiene el id como atributo o hijo, lo agregamos directamente
+          if ((it.$ && it.$[idAttr] !== undefined) || it[idAttr] !== undefined) {
+            results.push(...findAllItems(it, itemName, idAttr));
+          } else {
+            // Si no tiene id, buscar recursivamente
+            results.push(...findAllItems(it, itemName, idAttr));
+          }
         }
       }
     }
+
+    // Caso 4: Buscar recursivamente en las propiedades del objeto (excepto las ya procesadas)
     for (const key of Object.keys(obj)) {
-      if (key !== itemName && obj[key] && typeof obj[key] === 'object') {
-        results.push(...findAllItems(obj[key], itemName, idAttr));
+      if (obj[key] && typeof obj[key] === 'object') {
+        // Evitar ciclos infinitos (no procesar objetos ya procesados en el caso 3)
+        if (!(key === itemName || key.endsWith(itemName) || key.includes(':' + itemName))) {
+          results.push(...findAllItems(obj[key], itemName, idAttr));
+        }
       }
     }
   }
@@ -130,6 +158,9 @@ export async function syncGenerico({
       charkey: '_',
       trim: true,
     });
+
+    // Log de la estructura para depuración
+    console.log(`📄 Estructura del resultado (primeros 500 caracteres):`, JSON.stringify(result).slice(0, 500));
 
     const items = findAllItems(result, nodoItem, idAttr);
     console.log(`📦 ${nombre} obtenidos del ERP: ${items.length}`);
