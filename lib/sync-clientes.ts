@@ -30,9 +30,9 @@ export async function syncClientes() {
     idAttr: 'ClienteID',
     tabla: 'clientes',
     idCol: 'clienteid',
-    limite: 100,              // Probar solo 100 clientes
-    usarFiltros: false,       // Enviar <ns:Filtros /> vacío
+    limite: 100, // 👈 Solo 100 clientes para pruebas rápidas
     mapear: (item: any) => {
+      // Función para extraer valor de atributo o hijo
       const getValor = (node: any, campo: string): string | null => {
         if (node.$ && node.$[campo] !== undefined) return node.$[campo];
         if (node[campo] !== undefined) return node[campo];
