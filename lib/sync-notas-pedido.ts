@@ -1,5 +1,6 @@
 import { syncGenerico, parseFecha, parseNumero, getAttr, findAllItems } from './erp-common';
 import { sql } from './db';
+import * as fs from 'fs';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx';
 
@@ -96,6 +97,12 @@ export async function syncNotasDePedido() {
             const xmlText = await response.text();
             console.log('✅ Respuesta recibida para notas de pedido');
 
+            // 🔍 LOG DE RESPUESTA CRUDA (primeros 2000 caracteres)
+            console.log('📄 RESPUESTA CRUDA (primeros 2000 chars):', xmlText.slice(0, 2000));
+            // Guardar respuesta completa en archivo para depuración
+            fs.writeFileSync('debug-notas-pedido.xml', xmlText);
+            console.log('💾 Respuesta completa guardada en debug-notas-pedido.xml');
+
             const { parseStringPromise } = await import('xml2js');
             const result = await parseStringPromise(xmlText, {
                 explicitArray: false,
@@ -106,12 +113,38 @@ export async function syncNotasDePedido() {
                 trim: true,
             });
 
+            // 🔍 LOG DE ESTRUCTURA PARSEADA (primeros niveles)
+            console.log('📄 ESTRUCTURA PARSEADA (claves principales):', Object.keys(result));
+            // Si existe soap:Envelope, mostrar sus claves
+            if (result['soap:Envelope']) {
+                console.log('   soap:Envelope keys:', Object.keys(result['soap:Envelope']));
+                if (result['soap:Envelope']['soap:Body']) {
+                    console.log('   soap:Body keys:', Object.keys(result['soap:Envelope']['soap:Body']));
+                }
+            }
+
             // Buscar las notas de pedido en la respuesta
             const notas = findAllItems(result, 'NotaDePedido', 'Numero');
             console.log(`📦 Notas de pedido obtenidas del ERP: ${notas.length}`);
 
             if (notas.length === 0) {
                 console.warn('⚠️ No se encontraron notas de pedido en el período.');
+                // También mostrar la estructura del nodo ObtenerNotasDePedidoResult si existe
+                const body = result['soap:Envelope']?.['soap:Body'];
+                if (body) {
+                    const responseNode = body['ObtenerNotasDePedidoResponse'];
+                    if (responseNode) {
+                        console.log('   ObtenerNotasDePedidoResponse keys:', Object.keys(responseNode));
+                        const resultNode = responseNode['ObtenerNotasDePedidoResult'];
+                        if (resultNode) {
+                            console.log('   ObtenerNotasDePedidoResult keys:', Object.keys(resultNode));
+                            // Mostrar si hay algún nodo con Notas o similar
+                            if (resultNode['Notas']) {
+                                console.log('   Notas keys:', Object.keys(resultNode['Notas']));
+                            }
+                        }
+                    }
+                }
                 return;
             }
 
