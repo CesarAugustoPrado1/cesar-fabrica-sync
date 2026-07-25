@@ -1,6 +1,10 @@
 import { parseStringPromise } from 'xml2js';
 import { sql } from './db';
 
+// ==========================================
+// Funciones auxiliares
+// ==========================================
+
 export function parseFecha(valor: string | null): Date | null {
   if (!valor) return null;
   const fecha = new Date(valor);
@@ -24,67 +28,59 @@ export function getAttr(node: any, attrName: string): string | null {
   return node.$[attrName] || null;
 }
 
-// Función mejorada para buscar nodos con nombre exacto o que terminen en itemName
+// ==========================================
+// Búsqueda robusta de nodos (evita bucles)
+// ==========================================
+
 export function findAllItems(obj: any, itemName: string, idAttr: string): any[] {
   const results: any[] = [];
-  if (!obj) return results;
+  const stack = [obj];
+  const visited = new Set();
 
-  if (Array.isArray(obj)) {
-    for (const item of obj) {
-      results.push(...findAllItems(item, itemName, idAttr));
-    }
-    return results;
-  }
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current || typeof current !== 'object') continue;
 
-  if (typeof obj === 'object') {
-    // Caso 1: El objeto tiene un atributo con el id (ej. $: { ClienteID: "123" })
-    if (obj.$ && obj.$[idAttr] !== undefined) {
-      results.push(obj);
-    }
+    // Evitar ciclos
+    const key = JSON.stringify(current);
+    if (visited.has(key)) continue;
+    visited.add(key);
 
-    // Caso 2: El objeto tiene un hijo que es el id (ej. <ClienteID>123</ClienteID>)
-    if (obj[idAttr] !== undefined) {
-      // Crear un objeto con atributo para consistencia
-      const newItem = { $: {} };
-      newItem.$[idAttr] = obj[idAttr];
-      // Copiar el resto de las propiedades como hijos (por si acaso)
-      for (const key of Object.keys(obj)) {
-        if (key !== idAttr) {
-          newItem[key] = obj[key];
-        }
-      }
-      results.push(newItem);
+    // Caso 1: el objeto tiene el id como atributo
+    if (current.$ && current.$[idAttr] !== undefined) {
+      results.push(current);
+      continue;
     }
 
-    // Caso 3: Buscar en claves que coincidan exactamente con itemName o terminen en itemName
-    for (const key of Object.keys(obj)) {
-      // Si la clave es itemName o termina en itemName (ej. 'Cliente' o 'tns:Cliente')
-      if (key === itemName || key.endsWith(itemName) || key.includes(':' + itemName)) {
-        const items = Array.isArray(obj[key]) ? obj[key] : [obj[key]];
+    // Recorrer todas las claves del objeto
+    for (const k of Object.keys(current)) {
+      // Si la clave termina en itemName (ej. "Cliente", "tns:Cliente")
+      if (k.endsWith(itemName)) {
+        const items = Array.isArray(current[k]) ? current[k] : [current[k]];
         for (const it of items) {
-          // Si el item ya tiene el id como atributo o hijo, lo agregamos directamente
-          if ((it.$ && it.$[idAttr] !== undefined) || it[idAttr] !== undefined) {
-            results.push(...findAllItems(it, itemName, idAttr));
-          } else {
-            // Si no tiene id, buscar recursivamente
-            results.push(...findAllItems(it, itemName, idAttr));
+          if (it && typeof it === 'object') {
+            if ((it.$ && it.$[idAttr] !== undefined) || it[idAttr] !== undefined) {
+              results.push(it);
+            } else {
+              stack.push(it);
+            }
           }
         }
-      }
-    }
-
-    // Caso 4: Buscar recursivamente en las propiedades del objeto (excepto las ya procesadas)
-    for (const key of Object.keys(obj)) {
-      if (obj[key] && typeof obj[key] === 'object') {
-        // Evitar ciclos infinitos (no procesar objetos ya procesados en el caso 3)
-        if (!(key === itemName || key.endsWith(itemName) || key.includes(':' + itemName))) {
-          results.push(...findAllItems(obj[key], itemName, idAttr));
+      } else {
+        // Si no es el itemName, seguir explorando
+        if (current[k] && typeof current[k] === 'object') {
+          stack.push(current[k]);
         }
       }
     }
   }
+
   return results;
 }
+
+// ==========================================
+// Función genérica de sincronización (optimizada)
+// ==========================================
 
 export async function syncGenerico({
   nombre,
@@ -97,7 +93,9 @@ export async function syncGenerico({
   idAttr,
   tabla,
   idCol,
-  mapear
+  mapear,
+  limite = 1000,               // para pruebas
+  usarFiltros = true,          // si false, envía <Filtros /> vacío
 }: {
   nombre: string;
   url: string;
@@ -110,11 +108,24 @@ export async function syncGenerico({
   tabla: string;
   idCol: string;
   mapear: (item: any) => any;
+  limite?: number;
+  usarFiltros?: boolean;
 }) {
   try {
+    // Construir XML de atributos
     const atributosXML = atributos.map(attr => 
       `<${nodoItem}Atributos>${attr}</${nodoItem}Atributos>`
     ).join('');
+
+    // Construir nodo Filtros (vacío o con filtro)
+    let filtrosXML = '';
+    if (usarFiltros) {
+      // Para clientes, normalmente se usa un filtro para no traer demasiados, pero lo dejamos opcional.
+      // Por defecto enviamos filtro vacío.
+      filtrosXML = `<ns:Filtros />`;
+    } else {
+      filtrosXML = `<ns:Filtros />`;
+    }
 
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
@@ -124,13 +135,14 @@ export async function syncGenerico({
       <ns:AtributosVisibles>
         ${atributosXML}
       </ns:AtributosVisibles>
-      <ns:Filtros />
+      ${filtrosXML}
     </ns:${soapAction}>
   </soap:Body>
 </soap:Envelope>`;
 
     console.log(`📤 Enviando solicitud SOAP para ${nombre}...`);
     console.log(`🔹 SOAPAction: ${soapActionUrl}`);
+    console.log(`📄 XML Enviado:\n${soapEnvelope}`);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -159,44 +171,71 @@ export async function syncGenerico({
       trim: true,
     });
 
-    // Log de la estructura para depuración
-    console.log(`📄 Estructura del resultado (primeros 500 caracteres):`, JSON.stringify(result).slice(0, 500));
+    // Log de estructura para depuración
+    console.log(`📄 Estructura del resultado (primeros 500 caracteres):\n${JSON.stringify(result).slice(0, 500)}`);
 
-    const items = findAllItems(result, nodoItem, idAttr);
+    let items = findAllItems(result, nodoItem, idAttr);
     console.log(`📦 ${nombre} obtenidos del ERP: ${items.length}`);
+
+    if (items.length > limite) {
+      console.log(`⚠️ Aplicando límite de ${limite} registros para pruebas.`);
+      items = items.slice(0, limite);
+    }
 
     if (items.length === 0) {
       console.warn(`⚠️ No se encontraron ${nombre} en la respuesta.`);
       return;
     }
 
+    console.log(`🔄 Procesando ${items.length} ${nombre}...`);
+
     let procesados = 0;
     let errores = 0;
+    const lote = [];
 
     for (const item of items) {
       try {
         const data = mapear(item);
-        const columns = Object.keys(data);
-        const values = columns.map((_, i) => `$${i + 1}`).join(', ');
-        const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
-
-        const query = `
-          INSERT INTO ${tabla} (${columns.join(', ')})
-          VALUES (${values})
-          ON CONFLICT (${idCol}) DO UPDATE SET
-            ${updateSet},
-            ultima_sincronizacion = CURRENT_TIMESTAMP
-        `;
-
-        await sql.query(query, Object.values(data));
-        procesados++;
-
-        if (procesados % 100 === 0) {
-          console.log(`📊 ${nombre} procesados: ${procesados}`);
+        if (!data[idCol]) {
+          console.warn(`⚠️ ${nombre} sin ${idCol}, omitiendo...`);
+          continue;
         }
+        lote.push(data);
       } catch (error) {
         errores++;
-        console.error(`❌ Error procesando ${nombre}:`, error);
+        console.error(`❌ Error mapeando ${nombre}:`, error);
+      }
+    }
+
+    console.log(`📦 ${lote.length} ${nombre} listos para insertar.`);
+
+    const batchSize = 100;
+    for (let i = 0; i < lote.length; i += batchSize) {
+      const batch = lote.slice(i, i + batchSize);
+      try {
+        await sql.query('BEGIN');
+        for (const data of batch) {
+          const columns = Object.keys(data);
+          const values = columns.map((_, idx) => `$${idx + 1}`).join(', ');
+          const updateSet = columns.map(col => `${col} = EXCLUDED.${col}`).join(', ');
+
+          const query = `
+            INSERT INTO ${tabla} (${columns.join(', ')})
+            VALUES (${values})
+            ON CONFLICT (${idCol}) DO UPDATE SET
+              ${updateSet},
+              ultima_sincronizacion = CURRENT_TIMESTAMP
+          `;
+
+          await sql.query(query, Object.values(data));
+          procesados++;
+        }
+        await sql.query('COMMIT');
+        console.log(`📊 ${nombre} procesados: ${procesados}/${lote.length}`);
+      } catch (error) {
+        await sql.query('ROLLBACK');
+        console.error(`❌ Error en lote de ${nombre}:`, error);
+        errores += batch.length;
       }
     }
 
