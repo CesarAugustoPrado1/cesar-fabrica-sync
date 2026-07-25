@@ -1,10 +1,6 @@
 import { parseStringPromise } from 'xml2js';
 import { sql } from './db';
 
-// ==========================================
-// Funciones auxiliares
-// ==========================================
-
 export function parseFecha(valor: string | null): Date | null {
   if (!valor) return null;
   const fecha = new Date(valor);
@@ -28,10 +24,7 @@ export function getAttr(node: any, attrName: string): string | null {
   return node.$[attrName] || null;
 }
 
-// ==========================================
-// Búsqueda robusta de nodos (evita bucles)
-// ==========================================
-
+// Versión mejorada con logs internos
 export function findAllItems(obj: any, itemName: string, idAttr: string): any[] {
   const results: any[] = [];
   const stack = [obj];
@@ -41,20 +34,18 @@ export function findAllItems(obj: any, itemName: string, idAttr: string): any[] 
     const current = stack.pop();
     if (!current || typeof current !== 'object') continue;
 
-    // Evitar ciclos
     const key = JSON.stringify(current);
     if (visited.has(key)) continue;
     visited.add(key);
 
-    // Caso 1: el objeto tiene el id como atributo
+    // 1. Si el objeto tiene el id como atributo, es un item
     if (current.$ && current.$[idAttr] !== undefined) {
       results.push(current);
       continue;
     }
 
-    // Recorrer todas las claves del objeto
+    // 2. Si el objeto tiene una clave que termina en itemName (ej. 'Cliente', 'tns:Cliente')
     for (const k of Object.keys(current)) {
-      // Si la clave termina en itemName (ej. "Cliente", "tns:Cliente")
       if (k.endsWith(itemName)) {
         const items = Array.isArray(current[k]) ? current[k] : [current[k]];
         for (const it of items) {
@@ -66,22 +57,22 @@ export function findAllItems(obj: any, itemName: string, idAttr: string): any[] 
             }
           }
         }
-      } else {
-        // Si no es el itemName, seguir explorando
-        if (current[k] && typeof current[k] === 'object') {
-          stack.push(current[k]);
-        }
+      }
+    }
+
+    // 3. Buscar en propiedades hijas (excepto las ya procesadas)
+    for (const k of Object.keys(current)) {
+      if (k !== itemName && current[k] && typeof current[k] === 'object') {
+        stack.push(current[k]);
       }
     }
   }
 
+  console.log(`🔍 findAllItems encontró ${results.length} elementos con ${idAttr}`);
   return results;
 }
 
-// ==========================================
-// Función genérica de sincronización (optimizada)
-// ==========================================
-
+// Función genérica con logs y límite
 export async function syncGenerico({
   nombre,
   url,
@@ -94,8 +85,7 @@ export async function syncGenerico({
   tabla,
   idCol,
   mapear,
-  limite = 1000,               // para pruebas
-  usarFiltros = true,          // si false, envía <Filtros /> vacío
+  limite = 100 // 👈 Límite para pruebas (cambiar a 0 para sin límite)
 }: {
   nombre: string;
   url: string;
@@ -109,24 +99,13 @@ export async function syncGenerico({
   idCol: string;
   mapear: (item: any) => any;
   limite?: number;
-  usarFiltros?: boolean;
 }) {
   try {
-    // Construir XML de atributos
     const atributosXML = atributos.map(attr => 
       `<${nodoItem}Atributos>${attr}</${nodoItem}Atributos>`
     ).join('');
 
-    // Construir nodo Filtros (vacío o con filtro)
-    let filtrosXML = '';
-    if (usarFiltros) {
-      // Para clientes, normalmente se usa un filtro para no traer demasiados, pero lo dejamos opcional.
-      // Por defecto enviamos filtro vacío.
-      filtrosXML = `<ns:Filtros />`;
-    } else {
-      filtrosXML = `<ns:Filtros />`;
-    }
-
+    // ⚠️ IMPORTANTE: Incluir <Filtros /> vacío para evitar NullReferenceException
     const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
                xmlns:ns="${namespace}">
@@ -135,14 +114,14 @@ export async function syncGenerico({
       <ns:AtributosVisibles>
         ${atributosXML}
       </ns:AtributosVisibles>
-      ${filtrosXML}
+      <ns:Filtros />
     </ns:${soapAction}>
   </soap:Body>
 </soap:Envelope>`;
 
     console.log(`📤 Enviando solicitud SOAP para ${nombre}...`);
     console.log(`🔹 SOAPAction: ${soapActionUrl}`);
-    console.log(`📄 XML Enviado:\n${soapEnvelope}`);
+    console.log(`📄 XML enviado (primeros 300 caracteres): ${soapEnvelope.slice(0, 300)}...`);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -171,13 +150,14 @@ export async function syncGenerico({
       trim: true,
     });
 
-    // Log de estructura para depuración
-    console.log(`📄 Estructura del resultado (primeros 500 caracteres):\n${JSON.stringify(result).slice(0, 500)}`);
+    // Log de estructura completa para depuración
+    console.log(`📄 Estructura del resultado (primeros 500 caracteres):`, JSON.stringify(result).slice(0, 500));
 
     let items = findAllItems(result, nodoItem, idAttr);
     console.log(`📦 ${nombre} obtenidos del ERP: ${items.length}`);
 
-    if (items.length > limite) {
+    // Limitar para pruebas
+    if (limite > 0 && items.length > limite) {
       console.log(`⚠️ Aplicando límite de ${limite} registros para pruebas.`);
       items = items.slice(0, limite);
     }
@@ -209,7 +189,8 @@ export async function syncGenerico({
 
     console.log(`📦 ${lote.length} ${nombre} listos para insertar.`);
 
-    const batchSize = 100;
+    // Insertar en lotes de 50 para mejor rendimiento
+    const batchSize = 50;
     for (let i = 0; i < lote.length; i += batchSize) {
       const batch = lote.slice(i, i + batchSize);
       try {
