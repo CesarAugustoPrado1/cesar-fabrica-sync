@@ -1,16 +1,7 @@
-import { syncAll } from '../lib/erp-sync';
+import { syncProductos } from './sync-productos';
+import { syncClientes } from './sync-clientes';
 
-async function main() {
-  console.log('🚀 Iniciando sincronización ERP → Neon...');
-  console.log(`📅 ${new Date().toLocaleString()}`);
-  
-  try {
-    await syncAll();
-    console.log('✅ Sincronización completada exitosamente.');
-  } catch (error) {
-    console.error('❌ Error en la sincronización:', error);
-    process.exit(1);
-  }
+export async function syncAll() {
+  await syncProductos();
+  await syncClientes();
 }
-
-main();
