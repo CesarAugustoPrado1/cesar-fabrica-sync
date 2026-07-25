@@ -1,4 +1,4 @@
-import { syncGenerico, parseFecha, parseBooleano, getAttr } from './erp-common';
+import { syncGenerico, parseFecha, parseBooleano } from './erp-common';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioCCOCliente.asmx';
 
@@ -31,8 +31,9 @@ export async function syncClientes() {
     tabla: 'clientes',
     idCol: 'clienteid',
     mapear: (item: any) => {
-      // Extraer valores, manejando tanto atributos como hijos
+      // Función auxiliar para extraer valor de atributo o hijo
       const getValor = (node: any, campo: string): string | null => {
+        if (!node) return null;
         // Primero intentar como atributo
         if (node.$ && node.$[campo] !== undefined) {
           return node.$[campo];
