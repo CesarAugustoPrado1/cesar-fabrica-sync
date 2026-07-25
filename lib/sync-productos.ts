@@ -1,8 +1,8 @@
-import { syncGenerico, parseFecha, parseBooleano, parseNumero, getAttr } from './erp-common';
+import { syncGenerico, parseFecha, parseBooleano, parseNumero } from './erp-common';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
 
-// Atributos que se piden al ERP (solo los que realmente necesitas y existen en la tabla)
+// Solo los atributos que necesitamos y que existen en la tabla
 const atributos = [
   'ArticuloID',
   'Nombre',
@@ -42,9 +42,6 @@ const atributos = [
   'Clasificacion14ArticulosNombre',
   'Clasificacion15ArticulosNombre',
   'Clasificacion16ArticulosNombre',
-  // 'SeControlaStock', // No existe en la tabla, lo comento
-  // 'SeAdministraConPartidas', // No existe
-  // ... etc.
 ];
 
 export async function syncProductos() {
@@ -60,8 +57,7 @@ export async function syncProductos() {
     idAttr: 'ArticuloID',
     tabla: 'productos',
     idCol: 'articuloid',
-    // Sin límite (o poner 0 para desactivar)
-    limite: 0, // 0 = sin límite
+    limite: 0,
     mapear: (item: any) => {
       const getValor = (node: any, campo: string): string | null => {
         if (node.$ && node.$[campo] !== undefined) return node.$[campo];
@@ -69,16 +65,16 @@ export async function syncProductos() {
         return null;
       };
 
-      // Si nombre es null, asignar 'SIN NOMBRE'
       const nombre = getValor(item, 'Nombre') || 'SIN NOMBRE';
 
+      // Mapeo exacto a las columnas de la tabla productos en Neon
       return {
         articuloid: parseInt(getValor(item, 'ArticuloID') || '0'),
         nombre: nombre,
         descripcion: getValor(item, 'Descripcion'),
         unidadmedidastock: getValor(item, 'UnidadDeMedidaDeStock'),
-        fechadealta: parseFecha(getValor(item, 'FechaDeAlta')),
-        fechaultactualizacion: parseFecha(getValor(item, 'FechaUltActualizacion')),
+        fecha_creacion: parseFecha(getValor(item, 'FechaDeAlta')),
+        fecha_actualizacion: parseFecha(getValor(item, 'FechaUltActualizacion')),
         clasificacion1articulos: getValor(item, 'Clasificacion1Articulos'),
         clasificacion2articulos: getValor(item, 'Clasificacion2Articulos'),
         clasificacion3articulos: getValor(item, 'Clasificacion3Articulos'),
@@ -111,14 +107,13 @@ export async function syncProductos() {
         clasificacion14articulosnombre: getValor(item, 'Clasificacion14ArticulosNombre'),
         clasificacion15articulosnombre: getValor(item, 'Clasificacion15ArticulosNombre'),
         clasificacion16articulosnombre: getValor(item, 'Clasificacion16ArticulosNombre'),
-        // Estas columnas existen en la tabla pero no vienen en el SOAP, las dejamos null
+        // Columnas que existen pero no vienen del SOAP, las dejamos null
         codigodebarraunidadmedidastock: null,
         articuloempresa: null,
         articuloparaimpresion: null,
         tipodeariculo: null,
         precioventa: null,
         preciocosto: null,
-        // Si quieres agregar más columnas que vengan del SOAP, agrégalas aquí
       };
     }
   });
