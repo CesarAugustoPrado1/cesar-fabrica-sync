@@ -30,50 +30,65 @@ export async function syncClientes() {
     idAttr: 'ClienteID',
     tabla: 'clientes',
     idCol: 'clienteid',
-    mapear: (item: any) => ({
-      clienteid: parseInt(getAttr(item, 'ClienteID') || '0'),
-      nombre: getAttr(item, 'Nombre'),
-      nombrelegal: getAttr(item, 'NombreLegal'),
-      domicilio: getAttr(item, 'Domicilio'),
-      localidad: getAttr(item, 'Localidad'),
-      codigopostal: getAttr(item, 'CodigoPostal'),
-      provincia: getAttr(item, 'Provincia'),
-      pais: getAttr(item, 'Pais'),
-      telefono: getAttr(item, 'Telefono'),
-      fax: getAttr(item, 'Fax'),
-      email: getAttr(item, 'Email'),
-      observacion: getAttr(item, 'Observacion'),
-      condicionanteeliva: getAttr(item, 'CondicionAnteElIVA'),
-      clavetributaria: getAttr(item, 'ClaveTributaria'),
-      ingresosbrutos: getAttr(item, 'IngresosBrutos'),
-      contactodeventa: getAttr(item, 'ContactoDeVenta'),
-      contactodecobros: getAttr(item, 'ContactoDeCobros'),
-      condicionpago: getAttr(item, 'CondicionPago'),
-      monedausualcuentacorriente: getAttr(item, 'MonedaUsualCuentaCorriente'),
-      cuentacliente: getAttr(item, 'CuentaCliente'),
-      tipodecliente: getAttr(item, 'TipoDeCliente'),
-      actividaddecliente: getAttr(item, 'ActividadDeCliente'),
-      clasificacion1: getAttr(item, 'Clasificacion1'),
-      clasificacion2: getAttr(item, 'Clasificacion2'),
-      clasificacion3: getAttr(item, 'Clasificacion3'),
-      clasificacion4: getAttr(item, 'Clasificacion4'),
-      clasificacion5: getAttr(item, 'Clasificacion5'),
-      clasificacion6: getAttr(item, 'Clasificacion6'),
-      clasificacion7: getAttr(item, 'Clasificacion7'),
-      clasificacion8: getAttr(item, 'Clasificacion8'),
-      clasificacion9: getAttr(item, 'Clasificacion9'),
-      vendedor: getAttr(item, 'Vendedor'),
-      zonadeventa: getAttr(item, 'ZonaDeVenta'),
-      cobrador: getAttr(item, 'Cobrador'),
-      transporte: getAttr(item, 'Transporte'),
-      bloqueadoparanotasdepedido: parseBooleano(getAttr(item, 'BloqueadoParaNotasDePedido')),
-      bloqueadoparafacturar: parseBooleano(getAttr(item, 'BloqueadoParaFacturar')),
-      fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
-      fechadebaja: parseFecha(getAttr(item, 'FechaDeBaja')),
-      habilitadoparaconsultasweb: parseBooleano(getAttr(item, 'HabilitadoParaConsultasWeb')),
-      formatodeimpresionporcliente: getAttr(item, 'FormatoDeImpresionPorCliente'),
-      vendedor2: getAttr(item, 'Vendedor2'),
-      fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
-    })
+    mapear: (item: any) => {
+      // Extraer valores, manejando tanto atributos como hijos
+      const getValor = (node: any, campo: string): string | null => {
+        // Primero intentar como atributo
+        if (node.$ && node.$[campo] !== undefined) {
+          return node.$[campo];
+        }
+        // Si no, intentar como hijo
+        if (node[campo] !== undefined) {
+          return node[campo];
+        }
+        return null;
+      };
+
+      return {
+        clienteid: parseInt(getValor(item, 'ClienteID') || '0'),
+        nombre: getValor(item, 'Nombre'),
+        nombrelegal: getValor(item, 'NombreLegal'),
+        domicilio: getValor(item, 'Domicilio'),
+        localidad: getValor(item, 'Localidad'),
+        codigopostal: getValor(item, 'CodigoPostal'),
+        provincia: getValor(item, 'Provincia'),
+        pais: getValor(item, 'Pais'),
+        telefono: getValor(item, 'Telefono'),
+        fax: getValor(item, 'Fax'),
+        email: getValor(item, 'Email'),
+        observacion: getValor(item, 'Observacion'),
+        condicionanteeliva: getValor(item, 'CondicionAnteElIVA'),
+        clavetributaria: getValor(item, 'ClaveTributaria'),
+        ingresosbrutos: getValor(item, 'IngresosBrutos'),
+        contactodeventa: getValor(item, 'ContactoDeVenta'),
+        contactodecobros: getValor(item, 'ContactoDeCobros'),
+        condicionpago: getValor(item, 'CondicionPago'),
+        monedausualcuentacorriente: getValor(item, 'MonedaUsualCuentaCorriente'),
+        cuentacliente: getValor(item, 'CuentaCliente'),
+        tipodecliente: getValor(item, 'TipoDeCliente'),
+        actividaddecliente: getValor(item, 'ActividadDeCliente'),
+        clasificacion1: getValor(item, 'Clasificacion1'),
+        clasificacion2: getValor(item, 'Clasificacion2'),
+        clasificacion3: getValor(item, 'Clasificacion3'),
+        clasificacion4: getValor(item, 'Clasificacion4'),
+        clasificacion5: getValor(item, 'Clasificacion5'),
+        clasificacion6: getValor(item, 'Clasificacion6'),
+        clasificacion7: getValor(item, 'Clasificacion7'),
+        clasificacion8: getValor(item, 'Clasificacion8'),
+        clasificacion9: getValor(item, 'Clasificacion9'),
+        vendedor: getValor(item, 'Vendedor'),
+        zonadeventa: getValor(item, 'ZonaDeVenta'),
+        cobrador: getValor(item, 'Cobrador'),
+        transporte: getValor(item, 'Transporte'),
+        bloqueadoparanotasdepedido: parseBooleano(getValor(item, 'BloqueadoParaNotasDePedido')),
+        bloqueadoparafacturar: parseBooleano(getValor(item, 'BloqueadoParaFacturar')),
+        fechadealta: parseFecha(getValor(item, 'FechaDeAlta')),
+        fechadebaja: parseFecha(getValor(item, 'FechaDeBaja')),
+        habilitadoparaconsultasweb: parseBooleano(getValor(item, 'HabilitadoParaConsultasWeb')),
+        formatodeimpresionporcliente: getValor(item, 'FormatoDeImpresionPorCliente'),
+        vendedor2: getValor(item, 'Vendedor2'),
+        fechaultactualizacion: parseFecha(getValor(item, 'FechaUltActualizacion')),
+      };
+    }
   });
 }
