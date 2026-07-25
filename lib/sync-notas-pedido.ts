@@ -1,6 +1,5 @@
-import { syncGenerico, parseFecha, parseNumero, getAttr, findAllItems } from './erp-common';
+import { parseFecha, parseNumero, getAttr } from './erp-common';
 import { sql } from './db';
-import * as fs from 'fs';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx';
 
@@ -11,21 +10,41 @@ const atributosCabecera = [
     'EstadoDeAprobacion', 'FechaDeAlta', 'Observacion', 'ClienteNombre',
     'Clasificacion1Pedido', 'Clasificacion2Pedido', 'Clasificacion3Pedido',
     'Clasificacion4Pedido', 'Clasificacion5Pedido', 'Clasificacion6Pedido',
-    'Detalle' // Necesario para obtener los renglones
+    'Detalle'
 ];
-
-// Atributos que se piden al ERP (todos los que necesites)
-const atributos = atributosCabecera;
 
 // Función para obtener fechas de los últimos 2 meses
 function getUltimosDosMeses() {
     const ahora = new Date();
     const desde = new Date(ahora);
     desde.setMonth(ahora.getMonth() - 2);
-    // Formato ISO sin milisegundos: YYYY-MM-DDTHH:mm:ss
     const desdeStr = desde.toISOString().split('.')[0];
     const hastaStr = ahora.toISOString().split('.')[0];
     return { desde: desdeStr, hasta: hastaStr };
+}
+
+// Función auxiliar para extraer el array de NotaDePedido de la respuesta
+function extraerNotasDePedido(result: any): any[] {
+    try {
+        const envelope = result['soap:Envelope'];
+        if (!envelope) return [];
+        const body = envelope['soap:Body'];
+        if (!body) return [];
+        const response = body['ObtenerNotasDePedidoResponse'];
+        if (!response) return [];
+        const resultNode = response['ObtenerNotasDePedidoResult'];
+        if (!resultNode) return [];
+        const notasDePedidoNode = resultNode['NotasDePedido'];
+        if (!notasDePedidoNode) return [];
+        // Puede ser un objeto con un array 'NotaDePedido' o directamente el array
+        let notas = notasDePedidoNode['NotaDePedido'];
+        if (!notas) return [];
+        if (!Array.isArray(notas)) notas = [notas];
+        return notas;
+    } catch (e) {
+        console.error('❌ Error extrayendo notas:', e);
+        return [];
+    }
 }
 
 export async function syncNotasDePedido() {
@@ -51,7 +70,7 @@ export async function syncNotasDePedido() {
             </ns:Filtros>
         `;
 
-        const atributosXML = atributos.map(attr =>
+        const atributosXML = atributosCabecera.map(attr =>
             `<NotaDePedidoAtributos>${attr}</NotaDePedidoAtributos>`
         ).join('');
 
@@ -71,9 +90,8 @@ export async function syncNotasDePedido() {
         console.log('📤 Enviando solicitud SOAP para notas de pedido...');
         console.log(`🔹 SOAPAction: http://plataforma.net.ar/ObtenerNotasDePedido`);
 
-        // 🔥 Agregamos timeout de 5 minutos para evitar HeadersTimeoutError
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutos
+        const timeoutId = setTimeout(() => controller.abort(), 300000);
 
         try {
             const response = await fetch(SOAP_URL, {
@@ -97,12 +115,12 @@ export async function syncNotasDePedido() {
             const xmlText = await response.text();
             console.log('✅ Respuesta recibida para notas de pedido');
 
-            // 🔍 LOG DE RESPUESTA CRUDA (primeros 2000 caracteres)
-            console.log('📄 RESPUESTA CRUDA (primeros 2000 chars):', xmlText.slice(0, 2000));
-            // Guardar respuesta completa en archivo para depuración
+            // Guardar respuesta cruda para depuración
+            const fs = await import('fs');
             fs.writeFileSync('debug-notas-pedido.xml', xmlText);
             console.log('💾 Respuesta completa guardada en debug-notas-pedido.xml');
 
+            // Parsear XML a JSON
             const { parseStringPromise } = await import('xml2js');
             const result = await parseStringPromise(xmlText, {
                 explicitArray: false,
@@ -113,39 +131,18 @@ export async function syncNotasDePedido() {
                 trim: true,
             });
 
-            // 🔍 LOG DE ESTRUCTURA PARSEADA (primeros niveles)
-            console.log('📄 ESTRUCTURA PARSEADA (claves principales):', Object.keys(result));
-            // Si existe soap:Envelope, mostrar sus claves
-            if (result['soap:Envelope']) {
-                console.log('   soap:Envelope keys:', Object.keys(result['soap:Envelope']));
-                if (result['soap:Envelope']['soap:Body']) {
-                    console.log('   soap:Body keys:', Object.keys(result['soap:Envelope']['soap:Body']));
-                }
-            }
-
-            // Buscar las notas de pedido en la respuesta
-            const notas = findAllItems(result, 'NotaDePedido', 'Numero');
+            // Extraer manualmente las notas de pedido
+            const notas = extraerNotasDePedido(result);
             console.log(`📦 Notas de pedido obtenidas del ERP: ${notas.length}`);
 
             if (notas.length === 0) {
                 console.warn('⚠️ No se encontraron notas de pedido en el período.');
-                // También mostrar la estructura del nodo ObtenerNotasDePedidoResult si existe
-                const body = result['soap:Envelope']?.['soap:Body'];
-                if (body) {
-                    const responseNode = body['ObtenerNotasDePedidoResponse'];
-                    if (responseNode) {
-                        console.log('   ObtenerNotasDePedidoResponse keys:', Object.keys(responseNode));
-                        const resultNode = responseNode['ObtenerNotasDePedidoResult'];
-                        if (resultNode) {
-                            console.log('   ObtenerNotasDePedidoResult keys:', Object.keys(resultNode));
-                            // Mostrar si hay algún nodo con Notas o similar
-                            if (resultNode['Notas']) {
-                                console.log('   Notas keys:', Object.keys(resultNode['Notas']));
-                            }
-                        }
-                    }
-                }
                 return;
+            }
+
+            // Mostrar el primer elemento para ver qué atributos tiene
+            if (notas.length > 0) {
+                console.log('🔍 Ejemplo de atributos en la primera nota:', JSON.stringify(notas[0].$, null, 2));
             }
 
             let procesadosCabecera = 0;
@@ -154,27 +151,47 @@ export async function syncNotasDePedido() {
 
             for (const nota of notas) {
                 try {
-                    // Extraer cabecera
+                    // Obtener el identificador compuesto
+                    const idCompuesto = getAttr(nota, 'NotaDePedido');
+                    if (!idCompuesto) {
+                        console.warn('⚠️ Nota sin identificador, saltando...');
+                        continue;
+                    }
+
+                    // Parsear el ID compuesto: formato "division-tipo-numero"
+                    const partes = idCompuesto.split('-');
+                    if (partes.length !== 3) {
+                        console.warn(`⚠️ ID compuesto inválido: ${idCompuesto}, saltando...`);
+                        continue;
+                    }
+
+                    const division = parseInt(partes[0]) || 0;
+                    const tipo = partes[1] || '';
+                    const numero = parseInt(partes[2]) || 0;
+
+                    // Extraer los demás atributos (si existen) del objeto nota.$
+                    const attr = nota.$ || {};
+
                     const cabecera = {
-                        division: parseInt(getAttr(nota, 'Division') || '0'),
-                        tipo: getAttr(nota, 'Tipo'),
-                        numero: parseInt(getAttr(nota, 'Numero') || '0'),
-                        fecha_emision: parseFecha(getAttr(nota, 'FechaDeEmision')),
-                        cliente_id: parseInt(getAttr(nota, 'Cliente') || '0'),
-                        moneda: getAttr(nota, 'Moneda'),
-                        condicion_pago: getAttr(nota, 'CondicionDePago'),
-                        importe_bruto: parseNumero(getAttr(nota, 'ImporteBrutoMonedaOrigen')),
-                        importe_total: parseNumero(getAttr(nota, 'ImporteTotalMonedaOrigen')),
-                        estado_aprobacion: getAttr(nota, 'EstadoDeAprobacion'),
-                        fecha_alta: parseFecha(getAttr(nota, 'FechaDeAlta')),
-                        observacion: getAttr(nota, 'Observacion'),
-                        cliente_nombre: getAttr(nota, 'ClienteNombre'),
-                        clasificacion1: getAttr(nota, 'Clasificacion1Pedido'),
-                        clasificacion2: getAttr(nota, 'Clasificacion2Pedido'),
-                        clasificacion3: getAttr(nota, 'Clasificacion3Pedido'),
-                        clasificacion4: getAttr(nota, 'Clasificacion4Pedido'),
-                        clasificacion5: getAttr(nota, 'Clasificacion5Pedido'),
-                        clasificacion6: getAttr(nota, 'Clasificacion6Pedido'),
+                        division: division,
+                        tipo: tipo,
+                        numero: numero,
+                        fecha_emision: parseFecha(getAttr(attr, 'FechaDeEmision')),
+                        cliente_id: parseInt(getAttr(attr, 'Cliente') || '0'),
+                        moneda: getAttr(attr, 'Moneda'),
+                        condicion_pago: getAttr(attr, 'CondicionDePago'),
+                        importe_bruto: parseNumero(getAttr(attr, 'ImporteBrutoMonedaOrigen')),
+                        importe_total: parseNumero(getAttr(attr, 'ImporteTotalMonedaOrigen')),
+                        estado_aprobacion: getAttr(attr, 'EstadoDeAprobacion'),
+                        fecha_alta: parseFecha(getAttr(attr, 'FechaDeAlta')),
+                        observacion: getAttr(attr, 'Observacion'),
+                        cliente_nombre: getAttr(attr, 'ClienteNombre'),
+                        clasificacion1: getAttr(attr, 'Clasificacion1Pedido'),
+                        clasificacion2: getAttr(attr, 'Clasificacion2Pedido'),
+                        clasificacion3: getAttr(attr, 'Clasificacion3Pedido'),
+                        clasificacion4: getAttr(attr, 'Clasificacion4Pedido'),
+                        clasificacion5: getAttr(attr, 'Clasificacion5Pedido'),
+                        clasificacion6: getAttr(attr, 'Clasificacion6Pedido'),
                     };
 
                     // Insertar o actualizar cabecera
@@ -196,7 +213,6 @@ export async function syncNotasDePedido() {
                     // Procesar detalle (si existe)
                     const detalleNode = nota['Detalle'];
                     if (detalleNode) {
-                        // Detalle puede ser un array o un objeto
                         let items = Array.isArray(detalleNode) ? detalleNode : [detalleNode];
                         for (const item of items) {
                             let renglones = item['Renglon'] || item['RenglonDeVenta'];
