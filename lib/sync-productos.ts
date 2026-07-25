@@ -1,38 +1,50 @@
-import { syncGenerico, parseFecha, parseBooleano, parseNumero } from './erp-common';
+import { syncGenerico, parseFecha, parseBooleano, parseNumero, getAttr } from './erp-common';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
 
+// Atributos que se piden al ERP (solo los que realmente necesitas y existen en la tabla)
 const atributos = [
-  'ArticuloID', 'Nombre', 'Descripcion', 'UnidadDeMedidaDeStock',
-  'SeVende', 'SeCompra', 'FechaDeAlta', 'FechaUltActualizacion',
-  'Clasificacion1Articulos', 'Clasificacion2Articulos', 'Clasificacion3Articulos',
-  'Clasificacion4Articulos', 'Clasificacion5Articulos', 'Clasificacion6Articulos',
-  'Clasificacion7Articulos', 'Clasificacion8Articulos', 'Clasificacion9Articulos',
-  'Clasificacion10Articulos', 'Clasificacion11Articulos', 'Clasificacion12Articulos',
-  'Clasificacion13Articulos', 'Clasificacion14Articulos', 'Clasificacion15Articulos',
-  'Clasificacion16Articulos', 'Clasificacion1ArticulosNombre',
-  'Clasificacion2ArticulosNombre', 'Clasificacion3ArticulosNombre',
-  'Clasificacion4ArticulosNombre', 'Clasificacion5ArticulosNombre',
-  'Clasificacion6ArticulosNombre', 'Clasificacion7ArticulosNombre',
-  'Clasificacion8ArticulosNombre', 'Clasificacion9ArticulosNombre',
-  'Clasificacion10ArticulosNombre', 'Clasificacion11ArticulosNombre',
-  'Clasificacion12ArticulosNombre', 'Clasificacion13ArticulosNombre',
-  'Clasificacion14ArticulosNombre', 'Clasificacion15ArticulosNombre',
-  'Clasificacion16ArticulosNombre', 'SeControlaStock', 'SeAdministraConPartidas',
-  'SeAdministraConNumerosDeSerie', 'SeAdministraPorTalles', 'FechaDeBaja',
-  'BloqueadoParaMovimientosDeStock', 'GeneraMovimientosDeStock',
-  'PesoEmbaladoPorUnidadDeMedidaDeStock', 'CantidadPorUnidadDeMedidaDeStockPorBulto',
-  'UnidadDeMedidaHomogeneaDeStock', 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock',
-  'CuentaDeActivo', 'SeProduce', 'ModoDeConsumoDeComponentes',
-  'ModalidadDeStockMinimo', 'StockMinimoParaModalidadPorCantidadFija',
-  'AdministraPrecioPromedioPonderado', 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema',
-  'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock', 'SeCosteaPorCierreMensual',
-  'Talle', 'Color', 'DivisionParaAsientoDeCosteoPorCierre',
-  'EspecieDeGranoONCCA', 'TipoDeGranoONCCA', 'VariedadDeGrano',
-  'CuentaDeAnticipoLiquidacionCompraCereal', 'CodigoDeProductoCOT',
-  'UnidadDeMedidaCOT', 'FactorDeConversionCOT',
-  'VolumenEmbaladoPorUnidadDeMedidaDeStock', 'UnidadDeMedidaParaDimensionesDelArticulo',
-  'Largo', 'Ancho', 'Alto', 'BloqueadoParaVenta', 'FechaDeBajaParaVentas'
+  'ArticuloID',
+  'Nombre',
+  'Descripcion',
+  'UnidadDeMedidaDeStock',
+  'FechaDeAlta',
+  'FechaUltActualizacion',
+  'Clasificacion1Articulos',
+  'Clasificacion2Articulos',
+  'Clasificacion3Articulos',
+  'Clasificacion4Articulos',
+  'Clasificacion5Articulos',
+  'Clasificacion6Articulos',
+  'Clasificacion7Articulos',
+  'Clasificacion8Articulos',
+  'Clasificacion9Articulos',
+  'Clasificacion10Articulos',
+  'Clasificacion11Articulos',
+  'Clasificacion12Articulos',
+  'Clasificacion13Articulos',
+  'Clasificacion14Articulos',
+  'Clasificacion15Articulos',
+  'Clasificacion16Articulos',
+  'Clasificacion1ArticulosNombre',
+  'Clasificacion2ArticulosNombre',
+  'Clasificacion3ArticulosNombre',
+  'Clasificacion4ArticulosNombre',
+  'Clasificacion5ArticulosNombre',
+  'Clasificacion6ArticulosNombre',
+  'Clasificacion7ArticulosNombre',
+  'Clasificacion8ArticulosNombre',
+  'Clasificacion9ArticulosNombre',
+  'Clasificacion10ArticulosNombre',
+  'Clasificacion11ArticulosNombre',
+  'Clasificacion12ArticulosNombre',
+  'Clasificacion13ArticulosNombre',
+  'Clasificacion14ArticulosNombre',
+  'Clasificacion15ArticulosNombre',
+  'Clasificacion16ArticulosNombre',
+  // 'SeControlaStock', // No existe en la tabla, lo comento
+  // 'SeAdministraConPartidas', // No existe
+  // ... etc.
 ];
 
 export async function syncProductos() {
@@ -48,7 +60,8 @@ export async function syncProductos() {
     idAttr: 'ArticuloID',
     tabla: 'productos',
     idCol: 'articuloid',
-    limite: 0, // Sin límite para sincronizar todos
+    // Sin límite (o poner 0 para desactivar)
+    limite: 0, // 0 = sin límite
     mapear: (item: any) => {
       const getValor = (node: any, campo: string): string | null => {
         if (node.$ && node.$[campo] !== undefined) return node.$[campo];
@@ -56,16 +69,14 @@ export async function syncProductos() {
         return null;
       };
 
-      const nombre = getValor(item, 'Nombre');
-      const descripcion = getValor(item, 'Descripcion');
+      // Si nombre es null, asignar 'SIN NOMBRE'
+      const nombre = getValor(item, 'Nombre') || 'SIN NOMBRE';
 
       return {
         articuloid: parseInt(getValor(item, 'ArticuloID') || '0'),
-        nombre: nombre || 'S/N', // 👈 Valor por defecto si viene null
-        descripcion: descripcion || '',
+        nombre: nombre,
+        descripcion: getValor(item, 'Descripcion'),
         unidadmedidastock: getValor(item, 'UnidadDeMedidaDeStock'),
-        sevende: parseBooleano(getValor(item, 'SeVende')),
-        secompra: parseBooleano(getValor(item, 'SeCompra')),
         fechadealta: parseFecha(getValor(item, 'FechaDeAlta')),
         fechaultactualizacion: parseFecha(getValor(item, 'FechaUltActualizacion')),
         clasificacion1articulos: getValor(item, 'Clasificacion1Articulos'),
@@ -100,43 +111,14 @@ export async function syncProductos() {
         clasificacion14articulosnombre: getValor(item, 'Clasificacion14ArticulosNombre'),
         clasificacion15articulosnombre: getValor(item, 'Clasificacion15ArticulosNombre'),
         clasificacion16articulosnombre: getValor(item, 'Clasificacion16ArticulosNombre'),
-        secontrolastock: parseBooleano(getValor(item, 'SeControlaStock')),
-        seadministraconpartidas: parseBooleano(getValor(item, 'SeAdministraConPartidas')),
-        seadministraconnumerosdeserie: parseBooleano(getValor(item, 'SeAdministraConNumerosDeSerie')),
-        seadministraportalles: parseBooleano(getValor(item, 'SeAdministraPorTalles')),
-        fechadebaja: parseFecha(getValor(item, 'FechaDeBaja')),
-        bloqueadoparamovimientosstock: parseBooleano(getValor(item, 'BloqueadoParaMovimientosDeStock')),
-        generamovimientosstock: parseBooleano(getValor(item, 'GeneraMovimientosDeStock')),
-        pesoembaladounidadmedidastock: parseNumero(getValor(item, 'PesoEmbaladoPorUnidadDeMedidaDeStock')),
-        cantidadunidadmedidastockbulto: parseNumero(getValor(item, 'CantidadPorUnidadDeMedidaDeStockPorBulto')),
-        unidadmedidahomogeneastock: getValor(item, 'UnidadDeMedidaHomogeneaDeStock'),
-        factordeconversionunidadmedidahomogeneastock: parseNumero(getValor(item, 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock')),
-        cuentadeactivo: getValor(item, 'CuentaDeActivo'),
-        seproduce: parseBooleano(getValor(item, 'SeProduce')),
-        mododeconsumodecomponentes: getValor(item, 'ModoDeConsumoDeComponentes'),
-        modalidadestockminimo: getValor(item, 'ModalidadDeStockMinimo'),
-        stockminimoparamodalidadcantidadfija: parseNumero(getValor(item, 'StockMinimoParaModalidadPorCantidadFija')),
-        administrapreciopromedioponderado: parseBooleano(getValor(item, 'AdministraPrecioPromedioPonderado')),
-        ajustacantidadesumstockcalculadasporsistema: parseBooleano(getValor(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
-        porcentajemaximoajustecantidadumstock: parseNumero(getValor(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock')),
-        secosteaporcierremensual: parseBooleano(getValor(item, 'SeCosteaPorCierreMensual')),
-        talle: getValor(item, 'Talle'),
-        color: getValor(item, 'Color'),
-        divisionparaasientodecosteoporcierre: getValor(item, 'DivisionParaAsientoDeCosteoPorCierre'),
-        especiedegranooncca: getValor(item, 'EspecieDeGranoONCCA'),
-        tipodegranooncca: getValor(item, 'TipoDeGranoONCCA'),
-        variedaddedegrano: getValor(item, 'VariedadDeGrano'),
-        cuentadeanticipoliquidacioncompracereal: getValor(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
-        codigodeproductocot: getValor(item, 'CodigoDeProductoCOT'),
-        unidadmedidacot: getValor(item, 'UnidadDeMedidaCOT'),
-        factordeconversioncot: parseNumero(getValor(item, 'FactorDeConversionCOT')),
-        volumenembaladounidadmedidastock: parseNumero(getValor(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock')),
-        unidadmedidaparadimensionesarticulo: getValor(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
-        largo: parseNumero(getValor(item, 'Largo')),
-        ancho: parseNumero(getValor(item, 'Ancho')),
-        alto: parseNumero(getValor(item, 'Alto')),
-        bloqueadoparaventa: parseBooleano(getValor(item, 'BloqueadoParaVenta')),
-        fechadebajaparaventas: parseFecha(getValor(item, 'FechaDeBajaParaVentas')),
+        // Estas columnas existen en la tabla pero no vienen en el SOAP, las dejamos null
+        codigodebarraunidadmedidastock: null,
+        articuloempresa: null,
+        articuloparaimpresion: null,
+        tipodeariculo: null,
+        precioventa: null,
+        preciocosto: null,
+        // Si quieres agregar más columnas que vengan del SOAP, agrégalas aquí
       };
     }
   });
