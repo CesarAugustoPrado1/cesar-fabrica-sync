@@ -1,8 +1,8 @@
-import { syncGenerico, parseFecha, parseBooleano, parseNumero } from './erp-common';
+import { syncGenerico, parseFecha, parseBooleano, parseNumero, getAttr } from './erp-common';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
 
-// Atributos que pedimos al ERP
+// Atributos que pedimos al ERP (los que realmente necesitamos)
 const atributos = [
   'ArticuloID', 'Nombre', 'Descripcion', 'UnidadDeMedidaDeStock',
   'FechaDeAlta', 'FechaUltActualizacion',
@@ -26,11 +26,6 @@ const atributos = [
   'UnidadDeMedidaHomogeneaDeStock', 'FactorDeConversionUnidadDeMedidaHomogeneaDeStock',
   'CuentaDeActivo', 'SeProduce', 'ModoDeConsumoDeComponentes',
   'ModalidadDeStockMinimo', 'StockMinimoParaModalidadPorCantidadFija',
-  'Talle', 'Color', 'DivisionParaAsientoDeCosteoPorCierre',
-  'EspecieDeGranoONCCA', 'TipoDeGranoONCCA', 'VariedadDeGrano',
-  'CuentaDeAnticipoLiquidacionCompraCereal', 'CodigoDeProductoCOT',
-  'UnidadDeMedidaCOT', 'FactorDeConversionCOT',
-  'VolumenEmbaladoPorUnidadDeMedidaDeStock', 'UnidadDeMedidaParaDimensionesDelArticulo',
   'Largo', 'Ancho', 'Alto', 'BloqueadoParaVenta', 'FechaDeBajaParaVentas'
 ];
 
@@ -47,21 +42,18 @@ export async function syncProductos() {
     idAttr: 'ArticuloID',
     tabla: 'productos',
     idCol: 'articuloid',
-    limite: 0, // Sin límite para sincronizar todos
+    // Eliminamos límite para que sincronice todos
     mapear: (item: any) => {
-      // Función para extraer valor de atributo
-      const getAttr = (node: any, campo: string): string | null => {
-        if (node.$ && node.$[campo] !== undefined) return node.$[campo];
-        return null;
-      };
-
+      // Mapeamos solo las columnas que existen en la tabla
       return {
         articuloid: parseInt(getAttr(item, 'ArticuloID') || '0'),
         nombre: getAttr(item, 'Nombre'),
         descripcion: getAttr(item, 'Descripcion'),
         unidadmedidastock: getAttr(item, 'UnidadDeMedidaDeStock'),
-        fechadealta: parseFecha(getAttr(item, 'FechaDeAlta')),
-        fechaultactualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
+        // Usamos fecha_creacion para FechaDeAlta
+        fecha_creacion: parseFecha(getAttr(item, 'FechaDeAlta')),
+        // Usamos fecha_actualizacion para FechaUltActualizacion
+        fecha_actualizacion: parseFecha(getAttr(item, 'FechaUltActualizacion')),
         clasificacion1articulos: getAttr(item, 'Clasificacion1Articulos'),
         clasificacion2articulos: getAttr(item, 'Clasificacion2Articulos'),
         clasificacion3articulos: getAttr(item, 'Clasificacion3Articulos'),
@@ -110,23 +102,6 @@ export async function syncProductos() {
         mododeconsumodecomponentes: getAttr(item, 'ModoDeConsumoDeComponentes'),
         modalidadestockminimo: getAttr(item, 'ModalidadDeStockMinimo'),
         stockminimoparamodalidadcantidadfija: parseNumero(getAttr(item, 'StockMinimoParaModalidadPorCantidadFija')),
-        // Las siguientes columnas pueden no existir en la tabla, las dejamos comentadas
-        // administrapreciopromedioponderado: parseBooleano(getAttr(item, 'AdministraPrecioPromedioPonderado')),
-        // ajustacantidadesumstockcalculadasporsistema: parseBooleano(getAttr(item, 'AjustaCantidadesEnUMDeStockCalculadasPorElSistema')),
-        // porcentajemaximoajustecantidadumstock: parseNumero(getAttr(item, 'PorcentajeMaximoDeAjusteDeCantidadEnUMDeStock')),
-        // secosteaporcierremensual: parseBooleano(getAttr(item, 'SeCosteaPorCierreMensual')),
-        talle: getAttr(item, 'Talle'),
-        color: getAttr(item, 'Color'),
-        divisionparaasientodecosteoporcierre: getAttr(item, 'DivisionParaAsientoDeCosteoPorCierre'),
-        especiedegranooncca: getAttr(item, 'EspecieDeGranoONCCA'),
-        tipodegranooncca: getAttr(item, 'TipoDeGranoONCCA'),
-        variedaddedegrano: getAttr(item, 'VariedadDeGrano'),
-        cuentadeanticipoliquidacioncompracereal: getAttr(item, 'CuentaDeAnticipoLiquidacionCompraCereal'),
-        codigodeproductocot: getAttr(item, 'CodigoDeProductoCOT'),
-        unidadmedidacot: getAttr(item, 'UnidadDeMedidaCOT'),
-        factordeconversioncot: parseNumero(getAttr(item, 'FactorDeConversionCOT')),
-        volumenembaladounidadmedidastock: parseNumero(getAttr(item, 'VolumenEmbaladoPorUnidadDeMedidaDeStock')),
-        unidadmedidaparadimensionesarticulo: getAttr(item, 'UnidadDeMedidaParaDimensionesDelArticulo'),
         largo: parseNumero(getAttr(item, 'Largo')),
         ancho: parseNumero(getAttr(item, 'Ancho')),
         alto: parseNumero(getAttr(item, 'Alto')),
