@@ -4,14 +4,7 @@ import { sql } from './db';
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx';
 
 // Atributos de cabecera que vamos a pedir
-const atributosCabecera = [
-    'Division', 'Tipo', 'Numero', 'FechaDeEmision', 'Cliente', 'Moneda',
-    'CondicionDePago', 'ImporteBrutoMonedaOrigen', 'ImporteTotalMonedaOrigen',
-    'EstadoDeAprobacion', 'FechaDeAlta', 'Observacion', 'ClienteNombre',
-    'Clasificacion1Pedido', 'Clasificacion2Pedido', 'Clasificacion3Pedido',
-    'Clasificacion4Pedido', 'Clasificacion5Pedido', 'Clasificacion6Pedido',
-    'Detalle'
-];
+const atributosCabecera = ['*'];
 
 // Función para obtener fechas de los últimos 2 meses
 function getUltimosDosMeses() {
