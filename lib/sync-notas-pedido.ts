@@ -72,9 +72,6 @@ export async function syncNotasDePedido() {
                xmlns:ns="http://plataforma.net.ar/">
   <soap:Body>
     <ns:ObtenerNotasDePedido>
-      <ns:AtributosVisibles>
-        ${atributosXML}
-      </ns:AtributosVisibles>
       ${filtrosXML}
     </ns:ObtenerNotasDePedido>
   </soap:Body>
