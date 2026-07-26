@@ -3,9 +3,6 @@ import { sql } from './db';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx';
 
-// Atributos de cabecera que vamos a pedir
-const atributosCabecera = ['*'];
-
 // Función para obtener fechas de los últimos 2 meses
 function getUltimosDosMeses() {
     const ahora = new Date();
@@ -29,7 +26,6 @@ function extraerNotasDePedido(result: any): any[] {
         if (!resultNode) return [];
         const notasDePedidoNode = resultNode['NotasDePedido'];
         if (!notasDePedidoNode) return [];
-        // Puede ser un objeto con un array 'NotaDePedido' o directamente el array
         let notas = notasDePedidoNode['NotaDePedido'];
         if (!notas) return [];
         if (!Array.isArray(notas)) notas = [notas];
@@ -47,7 +43,7 @@ export async function syncNotasDePedido() {
         const { desde, hasta } = getUltimosDosMeses();
         console.log(`📅 Período: ${desde} → ${hasta}`);
 
-        // Construir filtro para últimos 2 meses
+        // Construir filtro para últimos 2 meses (sin atributos visibles)
         const filtrosXML = `
             <ns:Filtros>
                 <ns:Filtro>
@@ -63,10 +59,7 @@ export async function syncNotasDePedido() {
             </ns:Filtros>
         `;
 
-        const atributosXML = atributosCabecera.map(attr =>
-            `<NotaDePedidoAtributos>${attr}</NotaDePedidoAtributos>`
-        ).join('');
-
+        // XML sin la sección AtributosVisibles
         const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
                xmlns:ns="http://plataforma.net.ar/">
