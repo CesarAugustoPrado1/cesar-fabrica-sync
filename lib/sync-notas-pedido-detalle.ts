@@ -1,196 +1,131 @@
 // lib/sync-notas-pedido-detalle.ts
 import { sql } from './db';
+import { NotaPedidoCabecera } from './sync-notas-pedido';
 
-const ERP_URL = "http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx";
-// Usamos el método correcto para obtener el detalle de una nota específica
-const SOAP_ACTION = "http://plataforma.net.ar/ObtenerItemsNotaPedido"; 
+/**
+ * Obtiene el detalle de una nota de pedido usando el método correcto: ObtenerDetalleNotaPedido
+ */
+export async function obtenerDetallePorNota(cabecera: NotaPedidoCabecera) {
+  const { Division, Tipo, Numero, ClienteId } = cabecera;
 
-// =====================================================
-// FUNCIÓN PRINCIPAL: Sincronizar detalle de notas de pedido
-// =====================================================
-export async function syncNotasPedidoDetalle() {
-  console.log('🔄 Iniciando sincronización de detalle de notas de pedido...');
-
-  try {
-    // 1. Obtener TODAS las cabeceras de notas de pedido desde Neon
-    const cabeceras = await sql`
-      SELECT numero, division, tipo 
-      FROM notas_pedido_cabecera 
-      WHERE numero IS NOT NULL
-    `;
-
-    console.log(`📋 ${cabeceras.length} cabeceras de notas de pedido encontradas para procesar.`);
-
-    if (cabeceras.length === 0) {
-      console.log('⚠️ No hay cabeceras de notas de pedido para procesar.');
-      return { procesados: 0, errores: 0 };
-    }
-
-    let totalDetalles = 0;
-    let errores = 0;
-    let notasSinDetalle = 0;
-
-    // 2. Procesar cada cabecera para obtener su detalle
-    for (const cabecera of cabeceras) {
-      const { numero, division, tipo } = cabecera;
-      console.log(`🔍 Procesando nota ${numero} (División: ${division}, Tipo: ${tipo})...`);
-
-      try {
-        // 2.1 Obtener el detalle para esta nota específica
-        const detalles = await obtenerDetallePorNota(numero, division, tipo);
-        
-        if (detalles.length === 0) {
-          notasSinDetalle++;
-          // No es un error, solo significa que no tiene ítems.
-          continue; 
-        }
-
-        // 2.2 Guardar los detalles en Neon
-        const guardados = await guardarDetalles(detalles);
-        totalDetalles += guardados;
-        
-      } catch (error) {
-        errores++;
-        console.error(`❌ Error al procesar nota ${numero}:`, error);
-        // Continuamos con la siguiente nota
-      }
-    }
-
-    console.log(`✅ Sincronización de detalle completada.`);
-    console.log(`   - Total detalles guardados: ${totalDetalles}`);
-    console.log(`   - Notas sin detalle (vacíos): ${notasSinDetalle}`);
-    console.log(`   - Errores: ${errores}`);
-    
-    return { procesados: totalDetalles, errores };
-
-  } catch (error) {
-    console.error('❌ Error en syncNotasPedidoDetalle:', error);
-    throw error;
-  }
-}
-
-// =====================================================
-// OBTENER DETALLE POR NOTA ESPECÍFICA (SOAP)
-// =====================================================
-async function obtenerDetallePorNota(numero: number, division: number, tipo: string): Promise<any[]> {
-  // 🔥 Asegurar que los parámetros sean válidos
-  if (!numero || isNaN(numero)) {
-    console.warn(`⚠️ Número de nota inválido: ${numero}`);
+  if (!ClienteId) {
+    console.warn(`⚠️ Nota ${Numero} no tiene ClienteId. No se puede obtener detalle.`);
     return [];
   }
 
-  // Construir el XML SOAP para ObtenerItemsNotaPedido
-  const soapRequest = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:ns="http://plataforma.net.ar/">
+  console.log(`🔍 Procesando nota ${Numero} (Cliente: ${ClienteId})...`);
+
+  // Construcción de la solicitud SOAP según el WSDL
+  const soapRequest = `
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <ns:ObtenerItemsNotaPedido>
-      <ns:Numero>${numero}</ns:Numero>
-      <ns:Division>${division || 0}</ns:Division>
-      <ns:Tipo>${tipo || ''}</ns:Tipo>
-    </ns:ObtenerItemsNotaPedido>
+    <ObtenerDetalleNotaPedido xmlns="http://plataforma.net.ar/">
+      <ClienteId>${ClienteId}</ClienteId>
+      <EstadoRemision>Todos</EstadoRemision>
+      <!-- No enviamos ArticuloId ni ordenamiento para obtener todos los ítems -->
+    </ObtenerDetalleNotaPedido>
   </soap:Body>
 </soap:Envelope>`;
 
-  const response = await fetch(ERP_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'text/xml; charset=utf-8',
-      'SOAPAction': SOAP_ACTION,
-    },
-    body: soapRequest,
-  });
+  const response = await fetch(
+    "http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx",
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': '"http://plataforma.net.ar/ObtenerDetalleNotaPedido"',
+      },
+      body: soapRequest,
+    }
+  );
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`❌ Error HTTP para nota ${numero}:`, errorText);
-    throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
+    throw new Error(`Error HTTP: ${response.status} - ${await response.text()}`);
   }
 
-  const xmlText = await response.text();
-  return extraerDetalles(xmlText, numero);
+  const xml = await response.text();
+  
+  // Extraer y filtrar los items
+  const items = extraerItemsDesdeXML(xml, Division, Tipo, Numero);
+  return items;
 }
 
-// =====================================================
-// EXTRAER DETALLES DEL XML
-// =====================================================
-function extraerDetalles(xml: string, numeroNota: number): any[] {
-  const detalles: any[] = [];
-
-  // Buscar el nodo ObtenerItemsNotaPedidoResult
-  const resultMatch = xml.match(/<ObtenerItemsNotaPedidoResult>([\s\S]*?)<\/ObtenerItemsNotaPedidoResult>/);
+/**
+ * Extrae los ítems del XML y filtra por Division, Tipo y Numero
+ */
+function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numero: number): any[] {
+  const items: any[] = [];
+  
+  // Buscar el contenido de ObtenerDetalleNotaPedidoResult
+  const resultMatch = xml.match(/<ObtenerDetalleNotaPedidoResult>([\s\S]*?)<\/ObtenerDetalleNotaPedidoResult>/);
   if (!resultMatch) {
-    console.warn(`⚠️ No se encontró ObtenerItemsNotaPedidoResult para la nota ${numeroNota}.`);
+    console.warn('⚠️ No se encontró ObtenerDetalleNotaPedidoResult en la respuesta.');
     return [];
   }
 
   const innerXml = resultMatch[1];
-  // Buscar cada ItemNotaPedido (o el nombre que tenga el nodo)
-  const detalleMatches = innerXml.match(/<ItemNotaPedido([\s\S]*?)<\/ItemNotaPedido>/g);
-  if (!detalleMatches) {
-    // A veces el detalle puede estar en un nodo diferente, intentamos con un fallback
-    const fallbackMatches = innerXml.match(/<DetalleNotaPedido([\s\S]*?)<\/DetalleNotaPedido>/g);
-    if (!fallbackMatches) {
-      console.warn(`⚠️ No se encontraron ítems para la nota ${numeroNota}.`);
-      return [];
-    }
-    // Si encontramos con el fallback, lo usamos
-    for (const match of fallbackMatches) {
-      const detalle = parsearItem(match);
-      if (detalle) detalles.push(detalle);
-    }
-    return detalles;
+  
+  // Buscar todas las notas de pedido dentro del resultado
+  const notaMatches = innerXml.match(/<NotaPedido>([\s\S]*?)<\/NotaPedido>/g);
+  if (!notaMatches) {
+    console.warn('⚠️ No se encontraron NotaPedido en la respuesta.');
+    return [];
   }
 
-  for (const match of detalleMatches) {
-    const detalle = parsearItem(match);
-    if (detalle) detalles.push(detalle);
+  for (const notaMatch of notaMatches) {
+    const item: any = {};
+    
+    // Extraer campos básicos usando regex
+    const divMatch = notaMatch.match(/<Division>([^<]*)<\/Division>/);
+    const tipoMatch = notaMatch.match(/<Tipo>([^<]*)<\/Tipo>/);
+    const numMatch = notaMatch.match(/<Numero>([^<]*)<\/Numero>/);
+    const renglonMatch = notaMatch.match(/<Renglon>([^<]*)<\/Renglon>/);
+    const articuloIdMatch = notaMatch.match(/<ArticuloId>([^<]*)<\/ArticuloId>/);
+    const articuloEmpresaMatch = notaMatch.match(/<ArticuloEmpresa>([^<]*)<\/ArticuloEmpresa>/);
+    const articuloNombreMatch = notaMatch.match(/<ArticuloNombre>([^<]*)<\/ArticuloNombre>/);
+    const cantPedidaMatch = notaMatch.match(/<CantidadPedida>([^<]*)<\/CantidadPedida>/);
+    const cantFacturadaMatch = notaMatch.match(/<CantidadFacturada>([^<]*)<\/CantidadFacturada>/);
+    const cantEntregadaMatch = notaMatch.match(/<CantidadEntregada>([^<]*)<\/CantidadEntregada>/);
+    const precioNetoMatch = notaMatch.match(/<PrecioNeto_SI>([^<]*)<\/PrecioNeto_SI>/);
+    const unidadMedidaMatch = notaMatch.match(/<UnidadDeMedida>([^<]*)<\/UnidadDeMedida>/);
+
+    // Asignar valores si existen
+    if (divMatch) item.Division = parseInt(divMatch[1]);
+    if (tipoMatch) item.Tipo = tipoMatch[1];
+    if (numMatch) item.Numero = parseInt(numMatch[1]);
+    if (renglonMatch) item.Renglon = parseInt(renglonMatch[1]);
+    if (articuloIdMatch) item.ArticuloId = parseInt(articuloIdMatch[1]);
+    if (articuloEmpresaMatch) item.ArticuloEmpresa = articuloEmpresaMatch[1];
+    if (articuloNombreMatch) item.ArticuloNombre = articuloNombreMatch[1];
+    if (cantPedidaMatch) item.CantidadPedida = parseFloat(cantPedidaMatch[1]);
+    if (cantFacturadaMatch) item.CantidadFacturada = parseFloat(cantFacturadaMatch[1]);
+    if (cantEntregadaMatch) item.CantidadEntregada = parseFloat(cantEntregadaMatch[1]);
+    if (precioNetoMatch) item.PrecioNeto_SI = parseFloat(precioNetoMatch[1]);
+    if (unidadMedidaMatch) item.UnidadDeMedida = unidadMedidaMatch[1];
+
+    // Solo agregar si coincide con la cabecera que estamos procesando
+    if (item.Division === division && item.Tipo === tipo && item.Numero === numero) {
+      items.push(item);
+    }
   }
 
-  return detalles;
+  console.log(`✅ ${items.length} ítems encontrados para nota ${numero}`);
+  return items;
 }
 
-// =====================================================
-// PARSEAR UN ITEM DE NOTA DE PEDIDO
-// =====================================================
-function parsearItem(match: string): any | null {
-  const detalle: any = {};
+/**
+ * Guarda los ítems de detalle en Neon
+ */
+export async function guardarDetalleEnNeon(items: any[]) {
+  if (items.length === 0) return;
 
-  const divisionMatch = match.match(/<Division>([^<]*)<\/Division>/);
-  const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/);
-  const numeroMatch = match.match(/<Numero>([^<]*)<\/Numero>/);
-  const renglonMatch = match.match(/<Renglon>([^<]*)<\/Renglon>/);
-  const articuloIdMatch = match.match(/<ArticuloId>([^<]*)<\/ArticuloId>/);
-  const cantidadMatch = match.match(/<CantidadPedida>([^<]*)<\/CantidadPedida>/);
-  const precioMatch = match.match(/<PrecioNeto>([^<]*)<\/PrecioNeto>/);
-  const unidadMatch = match.match(/<UnidadDeMedida>([^<]*)<\/UnidadDeMedida>/);
-  const articuloNombreMatch = match.match(/<ArticuloNombre>([^<]*)<\/ArticuloNombre>/);
-
-  if (divisionMatch) detalle.division = parseInt(divisionMatch[1]) || 0;
-  if (tipoMatch) detalle.tipo = tipoMatch[1];
-  if (numeroMatch) detalle.numero = parseInt(numeroMatch[1]);
-  if (renglonMatch) detalle.renglon = parseInt(renglonMatch[1]) || 0;
-  if (articuloIdMatch) detalle.articulo_id = parseInt(articuloIdMatch[1]);
-  if (cantidadMatch) detalle.cantidad_pedida = parseFloat(cantidadMatch[1]) || 0;
-  if (precioMatch) detalle.precio_neto = parseFloat(precioMatch[1]) || 0;
-  if (unidadMatch) detalle.unidad_medida = unidadMatch[1];
-  if (articuloNombreMatch) detalle.articulo_nombre = articuloNombreMatch[1];
-
-  if (detalle.numero && detalle.renglon) {
-    return detalle;
-  }
-  return null;
-}
-
-// =====================================================
-// GUARDAR DETALLES EN NEON
-// =====================================================
-async function guardarDetalles(detalles: any[]) {
-  if (detalles.length === 0) return 0;
-
+  console.log(`💾 Guardando ${items.length} ítems de detalle en Neon...`);
   let contador = 0;
+  let errores = 0;
 
-  for (const detalle of detalles) {
+  for (const item of items) {
     try {
       await sql`
         INSERT INTO notas_pedido_detalle (
@@ -199,36 +134,49 @@ async function guardarDetalles(detalles: any[]) {
           numero,
           renglon,
           articulo_id,
+          articulo_empresa,
+          articulo_nombre,
           cantidad_pedida,
+          cantidad_facturada,
+          cantidad_entregada,
           precio_neto,
           unidad_medida,
-          articulo_nombre,
           ultima_sincronizacion
         ) VALUES (
-          ${detalle.division || 0},
-          ${detalle.tipo || null},
-          ${detalle.numero},
-          ${detalle.renglon || 0},
-          ${detalle.articulo_id || null},
-          ${detalle.cantidad_pedida || 0},
-          ${detalle.precio_neto || 0},
-          ${detalle.unidad_medida || null},
-          ${detalle.articulo_nombre || null},
+          ${item.Division},
+          ${item.Tipo},
+          ${item.Numero},
+          ${item.Renglon},
+          ${item.ArticuloId || null},
+          ${item.ArticuloEmpresa || null},
+          ${item.ArticuloNombre || null},
+          ${item.CantidadPedida || 0},
+          ${item.CantidadFacturada || 0},
+          ${item.CantidadEntregada || 0},
+          ${item.PrecioNeto_SI || 0},
+          ${item.UnidadDeMedida || null},
           NOW()
         )
         ON CONFLICT (division, tipo, numero, renglon) DO UPDATE SET
           articulo_id = EXCLUDED.articulo_id,
+          articulo_empresa = EXCLUDED.articulo_empresa,
+          articulo_nombre = EXCLUDED.articulo_nombre,
           cantidad_pedida = EXCLUDED.cantidad_pedida,
+          cantidad_facturada = EXCLUDED.cantidad_facturada,
+          cantidad_entregada = EXCLUDED.cantidad_entregada,
           precio_neto = EXCLUDED.precio_neto,
           unidad_medida = EXCLUDED.unidad_medida,
-          articulo_nombre = EXCLUDED.articulo_nombre,
           ultima_sincronizacion = NOW()
       `;
       contador++;
     } catch (error) {
-      console.error(`❌ Error al guardar detalle (${detalle.numero}-${detalle.renglon}):`, error);
+      errores++;
+      console.error(`❌ Error al guardar ítem ${item.Renglon} de nota ${item.Numero}:`, error);
     }
   }
 
-  return contador;
+  console.log(`✅ ${contador} ítems de detalle guardados/actualizados en Neon.`);
+  if (errores > 0) {
+    console.warn(`⚠️ ${errores} ítems tuvieron errores.`);
+  }
 }
