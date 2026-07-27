@@ -1,7 +1,8 @@
 // scripts/sync-erp.ts
 import { syncNotasDePedido } from '../lib/sync-notas-pedido';
-import { syncArticulos } from '../lib/sync-articulos'; // Asumo que existe
-import { syncClientes } from '../lib/sync-clientes';   // Asumo que existe
+// 👇 Importo las funciones correctas de los archivos que ya tienes
+import { syncProductos } from '../lib/sync-productos'; // Asumo que la función se llama syncProductos
+import { syncClientes } from '../lib/sync-clientes';   // Asumo que la función se llama syncClientes
 
 // =====================================================
 // FUNCIÓN PRINCIPAL
@@ -12,7 +13,7 @@ async function main() {
 
   try {
     // 1. Sincronizar productos
-    await syncArticulos();
+    await syncProductos();
 
     // 2. Sincronizar clientes
     await syncClientes();
