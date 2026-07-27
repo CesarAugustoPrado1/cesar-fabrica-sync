@@ -8,16 +8,14 @@ const SOAP_ACTION = "http://plataforma.net.ar/ObtenerNotasDePedido";
 // FUNCIÓN PRINCIPAL: Sincronizar notas de pedido
 // =====================================================
 export async function syncNotasDePedido() {
-  console.log('🔄 Iniciando sincronización de notas de pedido...');
+  console.log('🔄 Iniciando sincronización de notas de pedido (cabeceras)...');
 
   try {
-    // 1. Construir la solicitud SOAP con filtros obligatorios
     const soapRequest = construirSoapRequest();
     
     console.log('📤 Enviando solicitud SOAP para notas de pedido...');
     console.log(`🔹 SOAPAction: ${SOAP_ACTION}`);
 
-    // 2. Enviar la solicitud al ERP
     const response = await fetch(ERP_URL, {
       method: 'POST',
       headers: {
@@ -36,7 +34,6 @@ export async function syncNotasDePedido() {
     const xmlText = await response.text();
     console.log('✅ Respuesta recibida para notas de pedido');
 
-    // 3. Extraer las notas de pedido del XML
     const notas = extraerNotasDePedido(xmlText);
     
     if (notas.length === 0) {
@@ -46,7 +43,6 @@ export async function syncNotasDePedido() {
 
     console.log(`📦 Notas de pedido obtenidas del ERP: ${notas.length}`);
 
-    // 4. Guardar en Neon
     const resultado = await guardarNotasDePedido(notas);
     
     console.log(`✅ Sincronización de notas de pedido completada`);
@@ -62,10 +58,9 @@ export async function syncNotasDePedido() {
 // CONSTRUIR SOLICITUD SOAP
 // =====================================================
 function construirSoapRequest(): string {
-  // Filtro por fecha de alta (últimos 2 meses)
   const fechaDesde = new Date();
   fechaDesde.setMonth(fechaDesde.getMonth() - 2);
-  const fechaDesdeStr = fechaDesde.toISOString().split('T')[0]; // YYYY-MM-DD
+  const fechaDesdeStr = fechaDesde.toISOString().split('T')[0];
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
@@ -103,7 +98,6 @@ function construirSoapRequest(): string {
 function extraerNotasDePedido(xml: string): any[] {
   const notas: any[] = [];
   
-  // Buscar el nodo ObtenerNotasDePedidoResult
   const resultMatch = xml.match(/<ObtenerNotasDePedidoResult>([\s\S]*?)<\/ObtenerNotasDePedidoResult>/);
   if (!resultMatch) {
     console.warn('⚠️ No se encontró ObtenerNotasDePedidoResult en la respuesta.');
@@ -112,7 +106,6 @@ function extraerNotasDePedido(xml: string): any[] {
 
   const innerXml = resultMatch[1];
   
-  // Buscar cada NotaDePedido dentro del resultado
   const notaMatches = innerXml.match(/<NotaDePedido([\s\S]*?)<\/NotaDePedido>/g);
   if (!notaMatches) {
     console.warn('⚠️ No se encontraron notas de pedido en la respuesta.');
@@ -155,7 +148,7 @@ function extraerNotasDePedido(xml: string): any[] {
 }
 
 // =====================================================
-// GUARDAR NOTAS DE PEDIDO EN NEON
+// GUARDAR NOTAS DE PEDIDO EN NEON (CABECERAS)
 // =====================================================
 async function guardarNotasDePedido(notas: any[]) {
   if (notas.length === 0) {
@@ -163,14 +156,14 @@ async function guardarNotasDePedido(notas: any[]) {
     return { procesados: 0, errores: 0 };
   }
 
-  console.log(`💾 Guardando ${notas.length} notas de pedido en Neon...`);
+  console.log(`💾 Guardando ${notas.length} notas de pedido en Neon (tabla: notas_pedido_cabecera)...`);
   let contador = 0;
   let errores = 0;
 
   for (const nota of notas) {
     try {
       await sql`
-        INSERT INTO notas_pedido (
+        INSERT INTO notas_pedido_cabecera (
           numero,
           fecha_emision,
           cliente_id,
