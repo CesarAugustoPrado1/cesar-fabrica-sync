@@ -11,7 +11,7 @@ export async function syncNotasPedidoDetalle() {
   console.log('🔄 Iniciando sincronización de detalle de notas de pedido...');
 
   try {
-    // 1. Obtener todos los clientes desde Neon
+    // 1. Obtener todos los clientes desde Neon (usando el nombre de columna correcto)
     const clientes = await sql`SELECT clienteid FROM clientes WHERE clienteid IS NOT NULL`;
     console.log(`📋 ${clientes.length} clientes encontrados para procesar.`);
 
@@ -25,7 +25,8 @@ export async function syncNotasPedidoDetalle() {
 
     // 2. Procesar cada cliente
     for (const row of clientes) {
-      const clienteId = row.cliente_id;
+      // 🔥 Acceder a la propiedad correcta (clienteid)
+      const clienteId = row.clienteid;
       console.log(`🔍 Procesando cliente ${clienteId}...`);
 
       try {
@@ -54,6 +55,12 @@ export async function syncNotasPedidoDetalle() {
 // OBTENER DETALLE POR CLIENTE (SOAP)
 // =====================================================
 async function obtenerDetallePorCliente(clienteId: number): Promise<any[]> {
+  // 🔥 Asegurar que clienteId sea un número válido
+  if (!clienteId || isNaN(clienteId)) {
+    console.warn(`⚠️ ClienteId inválido: ${clienteId}`);
+    return [];
+  }
+
   const soapRequest = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:ns="http://plataforma.net.ar/">
@@ -90,7 +97,6 @@ async function obtenerDetallePorCliente(clienteId: number): Promise<any[]> {
 function extraerDetalles(xml: string, clienteId: number): any[] {
   const detalles: any[] = [];
 
-  // Buscar el nodo ObtenerDetalleNotaPedidoResult
   const resultMatch = xml.match(/<ObtenerDetalleNotaPedidoResult>([\s\S]*?)<\/ObtenerDetalleNotaPedidoResult>/);
   if (!resultMatch) {
     console.warn(`⚠️ No se encontró ObtenerDetalleNotaPedidoResult para cliente ${clienteId}.`);
@@ -98,7 +104,6 @@ function extraerDetalles(xml: string, clienteId: number): any[] {
   }
 
   const innerXml = resultMatch[1];
-  // Buscar cada DetalleNotaPedido
   const detalleMatches = innerXml.match(/<DetalleNotaPedido([\s\S]*?)<\/DetalleNotaPedido>/g);
   if (!detalleMatches) {
     console.warn(`⚠️ No se encontraron detalles para cliente ${clienteId}.`);
@@ -108,7 +113,6 @@ function extraerDetalles(xml: string, clienteId: number): any[] {
   for (const match of detalleMatches) {
     const detalle: any = {};
 
-    // Extraer campos según la estructura de la tabla
     const divisionMatch = match.match(/<Division>([^<]*)<\/Division>/);
     const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/);
     const numeroMatch = match.match(/<Numero>([^<]*)<\/Numero>/);
