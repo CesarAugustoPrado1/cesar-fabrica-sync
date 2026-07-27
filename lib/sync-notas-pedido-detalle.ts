@@ -2,7 +2,8 @@
 import { sql } from './db';
 
 const ERP_URL = "http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx";
-const SOAP_ACTION = "http://plataforma.net.ar/ObtenerDetalleNotaPedido";
+// Usamos el método correcto para obtener el detalle de una nota específica
+const SOAP_ACTION = "http://plataforma.net.ar/ObtenerItemsNotaPedido"; 
 
 // =====================================================
 // FUNCIÓN PRINCIPAL: Sincronizar detalle de notas de pedido
@@ -11,38 +12,55 @@ export async function syncNotasPedidoDetalle() {
   console.log('🔄 Iniciando sincronización de detalle de notas de pedido...');
 
   try {
-    // 1. Obtener todos los clientes desde Neon (usando el nombre de columna correcto)
-    const clientes = await sql`SELECT clienteid FROM clientes WHERE clienteid IS NOT NULL`;
-    console.log(`📋 ${clientes.length} clientes encontrados para procesar.`);
+    // 1. Obtener TODAS las cabeceras de notas de pedido desde Neon
+    const cabeceras = await sql`
+      SELECT numero, division, tipo 
+      FROM notas_pedido_cabecera 
+      WHERE numero IS NOT NULL
+    `;
 
-    if (clientes.length === 0) {
-      console.log('⚠️ No hay clientes para procesar.');
+    console.log(`📋 ${cabeceras.length} cabeceras de notas de pedido encontradas para procesar.`);
+
+    if (cabeceras.length === 0) {
+      console.log('⚠️ No hay cabeceras de notas de pedido para procesar.');
       return { procesados: 0, errores: 0 };
     }
 
     let totalDetalles = 0;
     let errores = 0;
+    let notasSinDetalle = 0;
 
-    // 2. Procesar cada cliente
-    for (const row of clientes) {
-      // 🔥 Acceder a la propiedad correcta (clienteid)
-      const clienteId = row.clienteid;
-      console.log(`🔍 Procesando cliente ${clienteId}...`);
+    // 2. Procesar cada cabecera para obtener su detalle
+    for (const cabecera of cabeceras) {
+      const { numero, division, tipo } = cabecera;
+      console.log(`🔍 Procesando nota ${numero} (División: ${division}, Tipo: ${tipo})...`);
 
       try {
-        const detalles = await obtenerDetallePorCliente(clienteId);
-        if (detalles.length > 0) {
-          const guardados = await guardarDetalles(detalles);
-          totalDetalles += guardados;
+        // 2.1 Obtener el detalle para esta nota específica
+        const detalles = await obtenerDetallePorNota(numero, division, tipo);
+        
+        if (detalles.length === 0) {
+          notasSinDetalle++;
+          // No es un error, solo significa que no tiene ítems.
+          continue; 
         }
+
+        // 2.2 Guardar los detalles en Neon
+        const guardados = await guardarDetalles(detalles);
+        totalDetalles += guardados;
+        
       } catch (error) {
         errores++;
-        console.error(`❌ Error al procesar cliente ${clienteId}:`, error);
-        // Continuamos con el siguiente cliente
+        console.error(`❌ Error al procesar nota ${numero}:`, error);
+        // Continuamos con la siguiente nota
       }
     }
 
-    console.log(`✅ Sincronización de detalle completada. Total detalles: ${totalDetalles}, Errores: ${errores}`);
+    console.log(`✅ Sincronización de detalle completada.`);
+    console.log(`   - Total detalles guardados: ${totalDetalles}`);
+    console.log(`   - Notas sin detalle (vacíos): ${notasSinDetalle}`);
+    console.log(`   - Errores: ${errores}`);
+    
     return { procesados: totalDetalles, errores };
 
   } catch (error) {
@@ -52,23 +70,25 @@ export async function syncNotasPedidoDetalle() {
 }
 
 // =====================================================
-// OBTENER DETALLE POR CLIENTE (SOAP)
+// OBTENER DETALLE POR NOTA ESPECÍFICA (SOAP)
 // =====================================================
-async function obtenerDetallePorCliente(clienteId: number): Promise<any[]> {
-  // 🔥 Asegurar que clienteId sea un número válido
-  if (!clienteId || isNaN(clienteId)) {
-    console.warn(`⚠️ ClienteId inválido: ${clienteId}`);
+async function obtenerDetallePorNota(numero: number, division: number, tipo: string): Promise<any[]> {
+  // 🔥 Asegurar que los parámetros sean válidos
+  if (!numero || isNaN(numero)) {
+    console.warn(`⚠️ Número de nota inválido: ${numero}`);
     return [];
   }
 
+  // Construir el XML SOAP para ObtenerItemsNotaPedido
   const soapRequest = `<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:ns="http://plataforma.net.ar/">
   <soap:Body>
-    <ns:ObtenerDetalleNotaPedido>
-      <ns:ClienteId>${clienteId}</ns:ClienteId>
-      <ns:EstadoRemision>Todos</ns:EstadoRemision>
-    </ns:ObtenerDetalleNotaPedido>
+    <ns:ObtenerItemsNotaPedido>
+      <ns:Numero>${numero}</ns:Numero>
+      <ns:Division>${division || 0}</ns:Division>
+      <ns:Tipo>${tipo || ''}</ns:Tipo>
+    </ns:ObtenerItemsNotaPedido>
   </soap:Body>
 </soap:Envelope>`;
 
@@ -83,62 +103,83 @@ async function obtenerDetallePorCliente(clienteId: number): Promise<any[]> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`❌ Error HTTP para cliente ${clienteId}:`, errorText);
+    console.error(`❌ Error HTTP para nota ${numero}:`, errorText);
     throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
   }
 
   const xmlText = await response.text();
-  return extraerDetalles(xmlText, clienteId);
+  return extraerDetalles(xmlText, numero);
 }
 
 // =====================================================
 // EXTRAER DETALLES DEL XML
 // =====================================================
-function extraerDetalles(xml: string, clienteId: number): any[] {
+function extraerDetalles(xml: string, numeroNota: number): any[] {
   const detalles: any[] = [];
 
-  const resultMatch = xml.match(/<ObtenerDetalleNotaPedidoResult>([\s\S]*?)<\/ObtenerDetalleNotaPedidoResult>/);
+  // Buscar el nodo ObtenerItemsNotaPedidoResult
+  const resultMatch = xml.match(/<ObtenerItemsNotaPedidoResult>([\s\S]*?)<\/ObtenerItemsNotaPedidoResult>/);
   if (!resultMatch) {
-    console.warn(`⚠️ No se encontró ObtenerDetalleNotaPedidoResult para cliente ${clienteId}.`);
+    console.warn(`⚠️ No se encontró ObtenerItemsNotaPedidoResult para la nota ${numeroNota}.`);
     return [];
   }
 
   const innerXml = resultMatch[1];
-  const detalleMatches = innerXml.match(/<DetalleNotaPedido([\s\S]*?)<\/DetalleNotaPedido>/g);
+  // Buscar cada ItemNotaPedido (o el nombre que tenga el nodo)
+  const detalleMatches = innerXml.match(/<ItemNotaPedido([\s\S]*?)<\/ItemNotaPedido>/g);
   if (!detalleMatches) {
-    console.warn(`⚠️ No se encontraron detalles para cliente ${clienteId}.`);
-    return [];
+    // A veces el detalle puede estar en un nodo diferente, intentamos con un fallback
+    const fallbackMatches = innerXml.match(/<DetalleNotaPedido([\s\S]*?)<\/DetalleNotaPedido>/g);
+    if (!fallbackMatches) {
+      console.warn(`⚠️ No se encontraron ítems para la nota ${numeroNota}.`);
+      return [];
+    }
+    // Si encontramos con el fallback, lo usamos
+    for (const match of fallbackMatches) {
+      const detalle = parsearItem(match);
+      if (detalle) detalles.push(detalle);
+    }
+    return detalles;
   }
 
   for (const match of detalleMatches) {
-    const detalle: any = {};
-
-    const divisionMatch = match.match(/<Division>([^<]*)<\/Division>/);
-    const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/);
-    const numeroMatch = match.match(/<Numero>([^<]*)<\/Numero>/);
-    const renglonMatch = match.match(/<Renglon>([^<]*)<\/Renglon>/);
-    const articuloIdMatch = match.match(/<ArticuloId>([^<]*)<\/ArticuloId>/);
-    const cantidadMatch = match.match(/<CantidadPedida>([^<]*)<\/CantidadPedida>/);
-    const precioMatch = match.match(/<PrecioNeto>([^<]*)<\/PrecioNeto>/);
-    const unidadMatch = match.match(/<UnidadDeMedida>([^<]*)<\/UnidadDeMedida>/);
-    const articuloNombreMatch = match.match(/<ArticuloNombre>([^<]*)<\/ArticuloNombre>/);
-
-    if (divisionMatch) detalle.division = parseInt(divisionMatch[1]) || 0;
-    if (tipoMatch) detalle.tipo = tipoMatch[1];
-    if (numeroMatch) detalle.numero = parseInt(numeroMatch[1]);
-    if (renglonMatch) detalle.renglon = parseInt(renglonMatch[1]) || 0;
-    if (articuloIdMatch) detalle.articulo_id = parseInt(articuloIdMatch[1]);
-    if (cantidadMatch) detalle.cantidad_pedida = parseFloat(cantidadMatch[1]) || 0;
-    if (precioMatch) detalle.precio_neto = parseFloat(precioMatch[1]) || 0;
-    if (unidadMatch) detalle.unidad_medida = unidadMatch[1];
-    if (articuloNombreMatch) detalle.articulo_nombre = articuloNombreMatch[1];
-
-    if (detalle.numero && detalle.renglon) {
-      detalles.push(detalle);
-    }
+    const detalle = parsearItem(match);
+    if (detalle) detalles.push(detalle);
   }
 
   return detalles;
+}
+
+// =====================================================
+// PARSEAR UN ITEM DE NOTA DE PEDIDO
+// =====================================================
+function parsearItem(match: string): any | null {
+  const detalle: any = {};
+
+  const divisionMatch = match.match(/<Division>([^<]*)<\/Division>/);
+  const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/);
+  const numeroMatch = match.match(/<Numero>([^<]*)<\/Numero>/);
+  const renglonMatch = match.match(/<Renglon>([^<]*)<\/Renglon>/);
+  const articuloIdMatch = match.match(/<ArticuloId>([^<]*)<\/ArticuloId>/);
+  const cantidadMatch = match.match(/<CantidadPedida>([^<]*)<\/CantidadPedida>/);
+  const precioMatch = match.match(/<PrecioNeto>([^<]*)<\/PrecioNeto>/);
+  const unidadMatch = match.match(/<UnidadDeMedida>([^<]*)<\/UnidadDeMedida>/);
+  const articuloNombreMatch = match.match(/<ArticuloNombre>([^<]*)<\/ArticuloNombre>/);
+
+  if (divisionMatch) detalle.division = parseInt(divisionMatch[1]) || 0;
+  if (tipoMatch) detalle.tipo = tipoMatch[1];
+  if (numeroMatch) detalle.numero = parseInt(numeroMatch[1]);
+  if (renglonMatch) detalle.renglon = parseInt(renglonMatch[1]) || 0;
+  if (articuloIdMatch) detalle.articulo_id = parseInt(articuloIdMatch[1]);
+  if (cantidadMatch) detalle.cantidad_pedida = parseFloat(cantidadMatch[1]) || 0;
+  if (precioMatch) detalle.precio_neto = parseFloat(precioMatch[1]) || 0;
+  if (unidadMatch) detalle.unidad_medida = unidadMatch[1];
+  if (articuloNombreMatch) detalle.articulo_nombre = articuloNombreMatch[1];
+
+  if (detalle.numero && detalle.renglon) {
+    return detalle;
+  }
+  return null;
 }
 
 // =====================================================
