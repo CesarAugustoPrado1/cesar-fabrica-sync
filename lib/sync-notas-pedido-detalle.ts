@@ -1,10 +1,20 @@
 // lib/sync-notas-pedido-detalle.ts
 import { sql } from './db';
-import { NotaPedidoCabecera } from './sync-notas-pedido';
 
-/**
- * Obtiene el detalle de una nota de pedido usando el método correcto: ObtenerDetalleNotaPedido
- */
+// =====================================================
+// TIPO: Cabecera de nota de pedido (estructura mínima)
+// =====================================================
+export interface NotaPedidoCabecera {
+  Division: number;
+  Tipo: string;
+  Numero: number;
+  ClienteId?: number;
+  // ... otros campos que puedan existir
+}
+
+// =====================================================
+// 1. OBTENER DETALLE DE UNA NOTA (vía SOAP)
+// =====================================================
 export async function obtenerDetallePorNota(cabecera: NotaPedidoCabecera) {
   const { Division, Tipo, Numero, ClienteId } = cabecera;
 
@@ -15,7 +25,6 @@ export async function obtenerDetallePorNota(cabecera: NotaPedidoCabecera) {
 
   console.log(`🔍 Procesando nota ${Numero} (Cliente: ${ClienteId})...`);
 
-  // Construcción de la solicitud SOAP según el WSDL
   const soapRequest = `
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
@@ -24,40 +33,42 @@ export async function obtenerDetallePorNota(cabecera: NotaPedidoCabecera) {
     <ObtenerDetalleNotaPedido xmlns="http://plataforma.net.ar/">
       <ClienteId>${ClienteId}</ClienteId>
       <EstadoRemision>Todos</EstadoRemision>
-      <!-- No enviamos ArticuloId ni ordenamiento para obtener todos los ítems -->
     </ObtenerDetalleNotaPedido>
   </soap:Body>
 </soap:Envelope>`;
 
-  const response = await fetch(
-    "http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx",
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': '"http://plataforma.net.ar/ObtenerDetalleNotaPedido"',
-      },
-      body: soapRequest,
+  try {
+    const response = await fetch(
+      "http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx",
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/xml; charset=utf-8',
+          'SOAPAction': '"http://plataforma.net.ar/ObtenerDetalleNotaPedido"',
+        },
+        body: soapRequest,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${response.status} - ${await response.text()}`);
     }
-  );
 
-  if (!response.ok) {
-    throw new Error(`Error HTTP: ${response.status} - ${await response.text()}`);
+    const xml = await response.text();
+    const items = extraerItemsDesdeXML(xml, Division, Tipo, Numero);
+    return items;
+  } catch (error) {
+    console.error(`❌ Error al obtener detalle de nota ${Numero}:`, error);
+    return [];
   }
-
-  const xml = await response.text();
-  
-  // Extraer y filtrar los items
-  const items = extraerItemsDesdeXML(xml, Division, Tipo, Numero);
-  return items;
 }
 
-/**
- * Extrae los ítems del XML y filtra por Division, Tipo y Numero
- */
+// =====================================================
+// 2. EXTRAER ÍTEMS DEL XML (FILTRADOS POR CABECERA)
+// =====================================================
 function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numero: number): any[] {
   const items: any[] = [];
-  
+
   // Buscar el contenido de ObtenerDetalleNotaPedidoResult
   const resultMatch = xml.match(/<ObtenerDetalleNotaPedidoResult>([\s\S]*?)<\/ObtenerDetalleNotaPedidoResult>/);
   if (!resultMatch) {
@@ -66,7 +77,7 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
   }
 
   const innerXml = resultMatch[1];
-  
+
   // Buscar todas las notas de pedido dentro del resultado
   const notaMatches = innerXml.match(/<NotaPedido>([\s\S]*?)<\/NotaPedido>/g);
   if (!notaMatches) {
@@ -76,7 +87,7 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
 
   for (const notaMatch of notaMatches) {
     const item: any = {};
-    
+
     // Extraer campos básicos usando regex
     const divMatch = notaMatch.match(/<Division>([^<]*)<\/Division>/);
     const tipoMatch = notaMatch.match(/<Tipo>([^<]*)<\/Tipo>/);
@@ -91,7 +102,6 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
     const precioNetoMatch = notaMatch.match(/<PrecioNeto_SI>([^<]*)<\/PrecioNeto_SI>/);
     const unidadMedidaMatch = notaMatch.match(/<UnidadDeMedida>([^<]*)<\/UnidadDeMedida>/);
 
-    // Asignar valores si existen
     if (divMatch) item.Division = parseInt(divMatch[1]);
     if (tipoMatch) item.Tipo = tipoMatch[1];
     if (numMatch) item.Numero = parseInt(numMatch[1]);
@@ -111,13 +121,15 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
     }
   }
 
-  console.log(`✅ ${items.length} ítems encontrados para nota ${numero}`);
+  if (items.length > 0) {
+    console.log(`✅ ${items.length} ítems encontrados para nota ${numero}`);
+  }
   return items;
 }
 
-/**
- * Guarda los ítems de detalle en Neon
- */
+// =====================================================
+// 3. GUARDAR ÍTEMS DE DETALLE EN NEON
+// =====================================================
 export async function guardarDetalleEnNeon(items: any[]) {
   if (items.length === 0) return;
 
@@ -178,5 +190,49 @@ export async function guardarDetalleEnNeon(items: any[]) {
   console.log(`✅ ${contador} ítems de detalle guardados/actualizados en Neon.`);
   if (errores > 0) {
     console.warn(`⚠️ ${errores} ítems tuvieron errores.`);
+  }
+}
+
+// =====================================================
+// 4. FUNCIÓN PRINCIPAL: SINCRONIZAR DETALLE DE NOTAS DE PEDIDO
+// =====================================================
+export async function syncNotasPedidoDetalle() {
+  console.log('🔄 Iniciando sincronización de detalle de notas de pedido...');
+
+  // 1. Obtener todas las cabeceras de notas de pedido desde Neon
+  const cabeceras = await sql<NotaPedidoCabecera[]>`
+    SELECT division, tipo, numero, cliente_id AS "ClienteId"
+    FROM notas_pedido_cabecera
+    WHERE cliente_id IS NOT NULL
+  `;
+
+  if (cabeceras.length === 0) {
+    console.log('⚠️ No hay cabeceras de notas de pedido para procesar.');
+    return;
+  }
+
+  console.log(`📋 ${cabeceras.length} cabeceras de notas de pedido encontradas.`);
+
+  let totalItems = 0;
+  let notasConError = 0;
+
+  // 2. Procesar cada cabecera
+  for (const cabecera of cabeceras) {
+    try {
+      const items = await obtenerDetallePorNota(cabecera);
+      if (items.length > 0) {
+        await guardarDetalleEnNeon(items);
+        totalItems += items.length;
+      }
+    } catch (error) {
+      notasConError++;
+      console.error(`❌ Error al procesar nota ${cabecera.Numero}:`, error);
+    }
+  }
+
+  console.log(`✅ Sincronización de detalle de notas de pedido completada.`);
+  console.log(`📊 Total de ítems sincronizados: ${totalItems}`);
+  if (notasConError > 0) {
+    console.warn(`⚠️ ${notasConError} notas tuvieron errores.`);
   }
 }
