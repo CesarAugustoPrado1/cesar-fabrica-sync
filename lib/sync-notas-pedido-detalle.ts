@@ -12,7 +12,7 @@ export async function syncNotasPedidoDetalle() {
 
   try {
     // 1. Obtener todos los clientes desde Neon
-    const clientes = await sql`SELECT cliente_id FROM clientes WHERE cliente_id IS NOT NULL`;
+    const clientes = await sql`SELECT clienteid FROM clientes WHERE clienteid IS NOT NULL`;
     console.log(`📋 ${clientes.length} clientes encontrados para procesar.`);
 
     if (clientes.length === 0) {
