@@ -1,266 +1,225 @@
-import { parseFecha, parseNumero, getAttr } from './erp-common';
+// lib/sync-notas-pedido.ts
 import { sql } from './db';
 
-const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx';
+const ERP_URL = "http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx";
+const SOAP_ACTION = "http://plataforma.net.ar/ObtenerNotasDePedido";
 
-// Función para obtener fechas de los últimos 2 meses
-function getUltimosDosMeses() {
-    const ahora = new Date();
-    const desde = new Date(ahora);
-    desde.setMonth(ahora.getMonth() - 2);
-    const desdeStr = desde.toISOString().split('.')[0];
-    const hastaStr = ahora.toISOString().split('.')[0];
-    return { desde: desdeStr, hasta: hastaStr };
-}
-
-// Función auxiliar para extraer el array de NotaDePedido de la respuesta
-function extraerNotasDePedido(result: any): any[] {
-    try {
-        const envelope = result['soap:Envelope'];
-        if (!envelope) return [];
-        const body = envelope['soap:Body'];
-        if (!body) return [];
-        const response = body['ObtenerNotasDePedidoResponse'];
-        if (!response) return [];
-        const resultNode = response['ObtenerNotasDePedidoResult'];
-        if (!resultNode) return [];
-        const notasDePedidoNode = resultNode['NotasDePedido'];
-        if (!notasDePedidoNode) return [];
-        let notas = notasDePedidoNode['NotaDePedido'];
-        if (!notas) return [];
-        if (!Array.isArray(notas)) notas = [notas];
-        return notas;
-    } catch (e) {
-        console.error('❌ Error extrayendo notas:', e);
-        return [];
-    }
-}
-
+// =====================================================
+// FUNCIÓN PRINCIPAL: Sincronizar notas de pedido
+// =====================================================
 export async function syncNotasDePedido() {
-    console.log('🔄 Iniciando sincronización de notas de pedido (últimos 2 meses)...');
+  console.log('🔄 Iniciando sincronización de notas de pedido...');
 
-    try {
-        const { desde, hasta } = getUltimosDosMeses();
-        console.log(`📅 Período: ${desde} → ${hasta}`);
+  try {
+    // 1. Construir la solicitud SOAP con filtros obligatorios
+    const soapRequest = construirSoapRequest();
+    
+    console.log('📤 Enviando solicitud SOAP para notas de pedido...');
+    console.log(`🔹 SOAPAction: ${SOAP_ACTION}`);
 
-        // Construir filtro para últimos 2 meses (sin atributos visibles)
-        const filtrosXML = `
-            <ns:Filtros>
-                <ns:Filtro>
-                    <ns:Atributo>FechaDeEmision</ns:Atributo>
-                    <ns:Comparador>GreaterOrEqualsThan</ns:Comparador>
-                    <ns:Valor>${desde}</ns:Valor>
-                </ns:Filtro>
-                <ns:Filtro>
-                    <ns:Atributo>FechaDeEmision</ns:Atributo>
-                    <ns:Comparador>LowerOrEqualsThan</ns:Comparador>
-                    <ns:Valor>${hasta}</ns:Valor>
-                </ns:Filtro>
-            </ns:Filtros>
-        `;
+    // 2. Enviar la solicitud al ERP
+    const response = await fetch(ERP_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        'SOAPAction': SOAP_ACTION,
+      },
+      body: soapRequest,
+    });
 
-        // XML sin la sección AtributosVisibles
-        const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Error en notas de pedido:', errorText);
+      throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
+    }
+
+    const xmlText = await response.text();
+    console.log('✅ Respuesta recibida para notas de pedido');
+
+    // 3. Extraer las notas de pedido del XML
+    const notas = extraerNotasDePedido(xmlText);
+    
+    if (notas.length === 0) {
+      console.log('📭 No se encontraron notas de pedido en el período especificado.');
+      return { procesados: 0, errores: 0 };
+    }
+
+    console.log(`📦 Notas de pedido obtenidas del ERP: ${notas.length}`);
+
+    // 4. Guardar en Neon
+    const resultado = await guardarNotasDePedido(notas);
+    
+    console.log(`✅ Sincronización de notas de pedido completada`);
+    return resultado;
+
+  } catch (error) {
+    console.error('❌ Error en syncNotasDePedido:', error);
+    throw error;
+  }
+}
+
+// =====================================================
+// CONSTRUIR SOLICITUD SOAP
+// =====================================================
+function construirSoapRequest(): string {
+  // Filtro por fecha de alta (últimos 2 meses)
+  const fechaDesde = new Date();
+  fechaDesde.setMonth(fechaDesde.getMonth() - 2);
+  const fechaDesdeStr = fechaDesde.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:ns="http://plataforma.net.ar/">
   <soap:Body>
     <ns:ObtenerNotasDePedido>
-      ${filtrosXML}
+      <ns:AtributosVisibles>
+        <ns:NotaDePedidoAtributos>Numero</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>FechaDeEmision</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>Cliente</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>ClienteNombre</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>ImporteTotalMonedaOrigen</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>EstadoDeAprobacion</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>Division</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>Tipo</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>Referencia</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>Observacion</ns:NotaDePedidoAtributos>
+        <ns:NotaDePedidoAtributos>FechaDeAlta</ns:NotaDePedidoAtributos>
+      </ns:AtributosVisibles>
+      <ns:Filtros>
+        <ns:Filtro>
+          <ns:Atributo>FechaDeAlta</ns:Atributo>
+          <ns:Comparador>GreaterOrEqualsThan</ns:Comparador>
+          <ns:Valor>${fechaDesdeStr}</ns:Valor>
+        </ns:Filtro>
+      </ns:Filtros>
     </ns:ObtenerNotasDePedido>
   </soap:Body>
 </soap:Envelope>`;
+}
 
-        console.log('📤 Enviando solicitud SOAP para notas de pedido...');
-        console.log(`🔹 SOAPAction: http://plataforma.net.ar/ObtenerNotasDePedido`);
+// =====================================================
+// EXTRAER NOTAS DE PEDIDO DEL XML
+// =====================================================
+function extraerNotasDePedido(xml: string): any[] {
+  const notas: any[] = [];
+  
+  // Buscar el nodo ObtenerNotasDePedidoResult
+  const resultMatch = xml.match(/<ObtenerNotasDePedidoResult>([\s\S]*?)<\/ObtenerNotasDePedidoResult>/);
+  if (!resultMatch) {
+    console.warn('⚠️ No se encontró ObtenerNotasDePedidoResult en la respuesta.');
+    return [];
+  }
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 300000);
+  const innerXml = resultMatch[1];
+  
+  // Buscar cada NotaDePedido dentro del resultado
+  const notaMatches = innerXml.match(/<NotaDePedido([\s\S]*?)<\/NotaDePedido>/g);
+  if (!notaMatches) {
+    console.warn('⚠️ No se encontraron notas de pedido en la respuesta.');
+    return [];
+  }
 
-        try {
-            const response = await fetch(SOAP_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'text/xml; charset=utf-8',
-                    'SOAPAction': 'http://plataforma.net.ar/ObtenerNotasDePedido',
-                },
-                body: soapEnvelope,
-                signal: controller.signal,
-            });
+  for (const match of notaMatches) {
+    const nota: any = {};
+    
+    const numMatch = match.match(/<Numero>([^<]*)<\/Numero>/);
+    const fechaMatch = match.match(/<FechaDeEmision>([^<]*)<\/FechaDeEmision>/);
+    const clienteMatch = match.match(/<Cliente>([^<]*)<\/Cliente>/);
+    const clienteNomMatch = match.match(/<ClienteNombre>([^<]*)<\/ClienteNombre>/);
+    const importeMatch = match.match(/<ImporteTotalMonedaOrigen>([^<]*)<\/ImporteTotalMonedaOrigen>/);
+    const estadoMatch = match.match(/<EstadoDeAprobacion>([^<]*)<\/EstadoDeAprobacion>/);
+    const divisionMatch = match.match(/<Division>([^<]*)<\/Division>/);
+    const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/);
+    const refMatch = match.match(/<Referencia>([^<]*)<\/Referencia>/);
+    const obsMatch = match.match(/<Observacion>([^<]*)<\/Observacion>/);
+    const fechaAltaMatch = match.match(/<FechaDeAlta>([^<]*)<\/FechaDeAlta>/);
 
-            clearTimeout(timeoutId);
+    if (numMatch) nota.numero = parseInt(numMatch[1]);
+    if (fechaMatch) nota.fecha_emision = new Date(fechaMatch[1]);
+    if (clienteMatch) nota.cliente_id = parseInt(clienteMatch[1]);
+    if (clienteNomMatch) nota.cliente_nombre = clienteNomMatch[1];
+    if (importeMatch) nota.importe_total = parseFloat(importeMatch[1]) || 0;
+    if (estadoMatch) nota.estado_aprobacion = estadoMatch[1];
+    if (divisionMatch) nota.division = parseInt(divisionMatch[1]) || 0;
+    if (tipoMatch) nota.tipo = tipoMatch[1];
+    if (refMatch) nota.referencia = refMatch[1];
+    if (obsMatch) nota.observacion = obsMatch[1];
+    if (fechaAltaMatch) nota.fecha_alta = new Date(fechaAltaMatch[1]);
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('❌ Error en notas de pedido:', errorText);
-                throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`);
-            }
-
-            const xmlText = await response.text();
-            console.log('✅ Respuesta recibida para notas de pedido');
-
-            // Guardar respuesta cruda para depuración
-            const fs = await import('fs');
-            fs.writeFileSync('debug-notas-pedido.xml', xmlText);
-            console.log('💾 Respuesta completa guardada en debug-notas-pedido.xml');
-
-            // Parsear XML a JSON
-            const { parseStringPromise } = await import('xml2js');
-            const result = await parseStringPromise(xmlText, {
-                explicitArray: false,
-                mergeAttrs: false,
-                ignoreAttrs: false,
-                attrkey: '$',
-                charkey: '_',
-                trim: true,
-            });
-
-            // Extraer manualmente las notas de pedido
-            const notas = extraerNotasDePedido(result);
-            console.log(`📦 Notas de pedido obtenidas del ERP: ${notas.length}`);
-
-            if (notas.length === 0) {
-                console.warn('⚠️ No se encontraron notas de pedido en el período.');
-                return;
-            }
-
-            // Mostrar el primer elemento para ver qué atributos tiene
-            if (notas.length > 0) {
-                console.log('🔍 Ejemplo de atributos en la primera nota:', JSON.stringify(notas[0].$, null, 2));
-            }
-
-            let procesadosCabecera = 0;
-            let procesadosDetalle = 0;
-            let errores = 0;
-
-            for (const nota of notas) {
-                try {
-                    // Obtener el identificador compuesto
-                    const idCompuesto = getAttr(nota, 'NotaDePedido');
-                    if (!idCompuesto) {
-                        console.warn('⚠️ Nota sin identificador, saltando...');
-                        continue;
-                    }
-
-                    // Parsear el ID compuesto: formato "division-tipo-numero"
-                    const partes = idCompuesto.split('-');
-                    if (partes.length !== 3) {
-                        console.warn(`⚠️ ID compuesto inválido: ${idCompuesto}, saltando...`);
-                        continue;
-                    }
-
-                    const division = parseInt(partes[0]) || 0;
-                    const tipo = partes[1] || '';
-                    const numero = parseInt(partes[2]) || 0;
-
-                    // Extraer los demás atributos (si existen) del objeto nota.$
-                    const attr = nota.$ || {};
-
-                    const cabecera = {
-                        division: division,
-                        tipo: tipo,
-                        numero: numero,
-                        fecha_emision: parseFecha(getAttr(attr, 'FechaDeEmision')),
-                        cliente_id: parseInt(getAttr(attr, 'Cliente') || '0'),
-                        moneda: getAttr(attr, 'Moneda'),
-                        condicion_pago: getAttr(attr, 'CondicionDePago'),
-                        importe_bruto: parseNumero(getAttr(attr, 'ImporteBrutoMonedaOrigen')),
-                        importe_total: parseNumero(getAttr(attr, 'ImporteTotalMonedaOrigen')),
-                        estado_aprobacion: getAttr(attr, 'EstadoDeAprobacion'),
-                        fecha_alta: parseFecha(getAttr(attr, 'FechaDeAlta')),
-                        observacion: getAttr(attr, 'Observacion'),
-                        cliente_nombre: getAttr(attr, 'ClienteNombre'),
-                        clasificacion1: getAttr(attr, 'Clasificacion1Pedido'),
-                        clasificacion2: getAttr(attr, 'Clasificacion2Pedido'),
-                        clasificacion3: getAttr(attr, 'Clasificacion3Pedido'),
-                        clasificacion4: getAttr(attr, 'Clasificacion4Pedido'),
-                        clasificacion5: getAttr(attr, 'Clasificacion5Pedido'),
-                        clasificacion6: getAttr(attr, 'Clasificacion6Pedido'),
-                    };
-
-                    // Insertar o actualizar cabecera
-                    const columnsCab = Object.keys(cabecera);
-                    const valuesCab = columnsCab.map((_, i) => `$${i + 1}`).join(', ');
-                    const updateSetCab = columnsCab.map(col => `${col} = EXCLUDED.${col}`).join(', ');
-
-                    const queryCab = `
-                        INSERT INTO notas_pedido_cabecera (${columnsCab.join(', ')})
-                        VALUES (${valuesCab})
-                        ON CONFLICT (division, tipo, numero) DO UPDATE SET
-                            ${updateSetCab},
-                            ultima_sincronizacion = CURRENT_TIMESTAMP
-                    `;
-
-                    await sql.query(queryCab, Object.values(cabecera));
-                    procesadosCabecera++;
-
-                    // Procesar detalle (si existe)
-                    const detalleNode = nota['Detalle'];
-                    if (detalleNode) {
-                        let items = Array.isArray(detalleNode) ? detalleNode : [detalleNode];
-                        for (const item of items) {
-                            let renglones = item['Renglon'] || item['RenglonDeVenta'];
-                            if (!renglones) continue;
-                            if (!Array.isArray(renglones)) renglones = [renglones];
-
-                            for (const renglon of renglones) {
-                                try {
-                                    const detalle = {
-                                        division: cabecera.division,
-                                        tipo: cabecera.tipo,
-                                        numero: cabecera.numero,
-                                        renglon: parseInt(getAttr(renglon, 'Renglon') || '0'),
-                                        articulo_id: parseInt(getAttr(renglon, 'ArticuloID') || '0'),
-                                        cantidad_pedida: parseNumero(getAttr(renglon, 'CantidadPedida')),
-                                        precio_neto: parseNumero(getAttr(renglon, 'PrecioNeto_SI')),
-                                        unidad_medida: getAttr(renglon, 'UnidadDeMedida'),
-                                        articulo_nombre: getAttr(renglon, 'ArticuloNombre'),
-                                    };
-
-                                    const columnsDet = Object.keys(detalle);
-                                    const valuesDet = columnsDet.map((_, i) => `$${i + 1}`).join(', ');
-                                    const updateSetDet = columnsDet.map(col => `${col} = EXCLUDED.${col}`).join(', ');
-
-                                    const queryDet = `
-                                        INSERT INTO notas_pedido_detalle (${columnsDet.join(', ')})
-                                        VALUES (${valuesDet})
-                                        ON CONFLICT (division, tipo, numero, renglon) DO UPDATE SET
-                                            ${updateSetDet},
-                                            ultima_sincronizacion = CURRENT_TIMESTAMP
-                                    `;
-
-                                    await sql.query(queryDet, Object.values(detalle));
-                                    procesadosDetalle++;
-                                } catch (error) {
-                                    errores++;
-                                    console.error(`❌ Error procesando renglón ${cabecera.division}-${cabecera.tipo}-${cabecera.numero}:`, error);
-                                }
-                            }
-                        }
-                    }
-
-                    if (procesadosCabecera % 50 === 0) {
-                        console.log(`📊 Cabeceras procesadas: ${procesadosCabecera}, Detalles: ${procesadosDetalle}`);
-                    }
-
-                } catch (error) {
-                    errores++;
-                    console.error(`❌ Error procesando nota de pedido:`, error);
-                }
-            }
-
-            console.log(`📊 Resumen notas de pedido:`);
-            console.log(`   Cabeceras procesadas: ${procesadosCabecera}`);
-            console.log(`   Detalles procesados: ${procesadosDetalle}`);
-            console.log(`   Errores: ${errores}`);
-            console.log('✅ Sincronización de notas de pedido completada');
-
-        } catch (error) {
-            clearTimeout(timeoutId);
-            throw error;
-        }
-
-    } catch (error) {
-        console.error('❌ Error en syncNotasDePedido:', error);
-        throw error;
+    if (nota.numero) {
+      notas.push(nota);
     }
+  }
+
+  return notas;
+}
+
+// =====================================================
+// GUARDAR NOTAS DE PEDIDO EN NEON
+// =====================================================
+async function guardarNotasDePedido(notas: any[]) {
+  if (notas.length === 0) {
+    console.log('⚠️ No hay notas de pedido para guardar.');
+    return { procesados: 0, errores: 0 };
+  }
+
+  console.log(`💾 Guardando ${notas.length} notas de pedido en Neon...`);
+  let contador = 0;
+  let errores = 0;
+
+  for (const nota of notas) {
+    try {
+      await sql`
+        INSERT INTO notas_pedido (
+          numero,
+          fecha_emision,
+          cliente_id,
+          cliente_nombre,
+          importe_total,
+          estado_aprobacion,
+          division,
+          tipo,
+          referencia,
+          observacion,
+          fecha_alta,
+          ultima_sincronizacion
+        ) VALUES (
+          ${nota.numero},
+          ${nota.fecha_emision || null},
+          ${nota.cliente_id || null},
+          ${nota.cliente_nombre || null},
+          ${nota.importe_total || 0},
+          ${nota.estado_aprobacion || null},
+          ${nota.division || 0},
+          ${nota.tipo || null},
+          ${nota.referencia || null},
+          ${nota.observacion || null},
+          ${nota.fecha_alta || null},
+          NOW()
+        )
+        ON CONFLICT (numero, division) DO UPDATE SET
+          fecha_emision = EXCLUDED.fecha_emision,
+          cliente_id = EXCLUDED.cliente_id,
+          cliente_nombre = EXCLUDED.cliente_nombre,
+          importe_total = EXCLUDED.importe_total,
+          estado_aprobacion = EXCLUDED.estado_aprobacion,
+          tipo = EXCLUDED.tipo,
+          referencia = EXCLUDED.referencia,
+          observacion = EXCLUDED.observacion,
+          fecha_alta = EXCLUDED.fecha_alta,
+          ultima_sincronizacion = NOW()
+      `;
+      contador++;
+    } catch (error) {
+      errores++;
+      console.error(`❌ Error al guardar nota de pedido ${nota.numero}:`, error);
+    }
+  }
+
+  console.log(`✅ ${contador} notas de pedido guardadas/actualizadas en Neon.`);
+  if (errores > 0) {
+    console.warn(`⚠️ ${errores} notas de pedido tuvieron errores.`);
+  }
+
+  return { procesados: contador, errores };
 }
