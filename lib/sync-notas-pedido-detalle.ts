@@ -7,16 +7,16 @@ import { sql } from './db';
 export async function syncNotasPedidoDetalle() {
   console.log('🔄 Iniciando sincronización de detalle de notas de pedido...');
 
-  // Obtener todas las cabeceras que tienen ClienteId
+  // 🔥 CAMBIO IMPORTANTE: Usar "cliente_id" en lugar de "clienteid"
   const cabeceras = await sql`
-    SELECT division, tipo, numero, clienteid
+    SELECT division, tipo, numero, cliente_id
     FROM notas_pedido_cabecera
-    WHERE clienteid IS NOT NULL
+    WHERE cliente_id IS NOT NULL
     ORDER BY numero
   `;
 
   if (!cabeceras || cabeceras.length === 0) {
-    console.log('⚠️ No se encontraron cabeceras con ClienteId.');
+    console.log('⚠️ No se encontraron cabeceras con cliente_id.');
     return;
   }
 
@@ -42,17 +42,18 @@ export async function syncNotasPedidoDetalle() {
 }
 
 // =====================================================
-// 2. OBTENER DETALLE POR NOTA (usando ClienteId)
+// 2. OBTENER DETALLE POR NOTA (usando cliente_id)
 // =====================================================
 export async function obtenerDetallePorNota(cabecera: any) {
-  const { division, tipo, numero, clienteid } = cabecera;
+  // 🔥 CAMBIO: Usar "cliente_id" en lugar de "clienteid"
+  const { division, tipo, numero, cliente_id } = cabecera;
 
-  if (!clienteid) {
-    console.warn(`⚠️ Nota ${numero} no tiene ClienteId.`);
+  if (!cliente_id) {
+    console.warn(`⚠️ Nota ${numero} no tiene cliente_id.`);
     return [];
   }
 
-  console.log(`🔍 Procesando nota ${numero} (Cliente: ${clienteid})...`);
+  console.log(`🔍 Procesando nota ${numero} (Cliente: ${cliente_id})...`);
 
   const soapRequest = `
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -60,7 +61,7 @@ export async function obtenerDetallePorNota(cabecera: any) {
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
     <ObtenerDetalleNotaPedido xmlns="http://plataforma.net.ar/">
-      <ClienteId>${clienteid}</ClienteId>
+      <ClienteId>${cliente_id}</ClienteId>
       <EstadoRemision>Todos</EstadoRemision>
     </ObtenerDetalleNotaPedido>
   </soap:Body>
@@ -93,7 +94,6 @@ export async function obtenerDetallePorNota(cabecera: any) {
 function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numero: number): any[] {
   const items: any[] = [];
 
-  // Buscar el contenido de ObtenerDetalleNotaPedidoResult
   const resultMatch = xml.match(/<ObtenerDetalleNotaPedidoResult>([\s\S]*?)<\/ObtenerDetalleNotaPedidoResult>/);
   if (!resultMatch) {
     console.warn('⚠️ No se encontró ObtenerDetalleNotaPedidoResult en la respuesta.');
@@ -102,7 +102,6 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
 
   const innerXml = resultMatch[1];
 
-  // Buscar todos los elementos <DetalleNotaPedido>
   const detalleMatches = innerXml.match(/<DetalleNotaPedido>([\s\S]*?)<\/DetalleNotaPedido>/g);
   if (!detalleMatches) {
     console.warn('⚠️ No se encontraron elementos DetalleNotaPedido en la respuesta.');
@@ -112,7 +111,6 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
   for (const match of detalleMatches) {
     const item: any = {};
 
-    // Extraer campos usando regex (con nombres exactos del XML)
     const divMatch = match.match(/<Division>([^<]*)<\/Division>/);
     const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/);
     const numMatch = match.match(/<Numero>([^<]*)<\/Numero>/);
@@ -128,7 +126,6 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
     const fechaEntregaMatch = match.match(/<FechaEntrega>([^<]*)<\/FechaEntrega>/);
     const clienteIdMatch = match.match(/<ClienteId>([^<]*)<\/ClienteId>/);
 
-    // Asignar valores (usando nombres en minúscula para coincidir con la BD)
     if (divMatch) item.division = parseInt(divMatch[1]);
     if (tipoMatch) item.tipo = tipoMatch[1];
     if (numMatch) item.numero = parseInt(numMatch[1]);
@@ -144,7 +141,6 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
     if (fechaEntregaMatch) item.fecha_entrega = fechaEntregaMatch[1];
     if (clienteIdMatch) item.cliente_id = parseInt(clienteIdMatch[1]);
 
-    // 🔥 Solo agregar si coincide con la cabecera que estamos procesando
     if (item.division === division && item.tipo === tipo && item.numero === numero) {
       items.push(item);
     }
