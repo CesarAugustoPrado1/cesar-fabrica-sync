@@ -7,7 +7,7 @@ import { sql } from './db';
 export async function syncNotasPedidoDetalle() {
   console.log('🔄 Iniciando sincronización de detalle de notas de pedido...');
 
-  // Obtener todas las cabeceras de notas de pedido que tienen ClienteId
+  // Obtener todas las cabeceras que tienen ClienteId
   const cabeceras = await sql`
     SELECT division, tipo, numero, clienteid
     FROM notas_pedido_cabecera
@@ -16,11 +16,11 @@ export async function syncNotasPedidoDetalle() {
   `;
 
   if (!cabeceras || cabeceras.length === 0) {
-    console.log('⚠️ No se encontraron cabeceras de notas de pedido con ClienteId.');
+    console.log('⚠️ No se encontraron cabeceras con ClienteId.');
     return;
   }
 
-  console.log(`📋 ${cabeceras.length} cabeceras de notas de pedido encontradas.`);
+  console.log(`📋 ${cabeceras.length} cabeceras encontradas.`);
 
   let totalItems = 0;
   let notasConError = 0;
@@ -42,14 +42,13 @@ export async function syncNotasPedidoDetalle() {
 }
 
 // =====================================================
-// 2. OBTENER DETALLE POR NOTA (con ClienteId)
+// 2. OBTENER DETALLE POR NOTA (usando ClienteId)
 // =====================================================
 export async function obtenerDetallePorNota(cabecera: any) {
-  // 🔥 Usar nombres en minúscula (como vienen de la BD)
   const { division, tipo, numero, clienteid } = cabecera;
 
   if (!clienteid) {
-    console.warn(`⚠️ Nota ${numero} no tiene ClienteId. No se puede obtener detalle.`);
+    console.warn(`⚠️ Nota ${numero} no tiene ClienteId.`);
     return [];
   }
 
@@ -89,7 +88,7 @@ export async function obtenerDetallePorNota(cabecera: any) {
 }
 
 // =====================================================
-// 3. EXTRAER ÍTEMS DEL XML (robusto)
+// 3. EXTRAER ÍTEMS DEL XML (adaptado a la estructura real)
 // =====================================================
 function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numero: number): any[] {
   const items: any[] = [];
@@ -103,32 +102,33 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
 
   const innerXml = resultMatch[1];
 
-  // 🔥 Buscar cualquier elemento que contenga Division, Tipo, Numero, Renglon
-  // Puede ser <NotaPedido>, <Detalle>, <Item>, etc.
-  const itemMatches = innerXml.match(/<(?:NotaPedido|Detalle|Item)(?:[^>]*)>([\s\S]*?)<\/(?:NotaPedido|Detalle|Item)>/g);
-
-  if (!itemMatches) {
-    console.warn('⚠️ No se encontraron elementos de detalle en la respuesta.');
+  // Buscar todos los elementos <DetalleNotaPedido>
+  const detalleMatches = innerXml.match(/<DetalleNotaPedido>([\s\S]*?)<\/DetalleNotaPedido>/g);
+  if (!detalleMatches) {
+    console.warn('⚠️ No se encontraron elementos DetalleNotaPedido en la respuesta.');
     return [];
   }
 
-  for (const match of itemMatches) {
+  for (const match of detalleMatches) {
     const item: any = {};
 
-    // Extraer campos usando regex (con nombres en minúscula para coincidir con la BD)
-    const divMatch = match.match(/<Division>([^<]*)<\/Division>/i);
-    const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/i);
-    const numMatch = match.match(/<Numero>([^<]*)<\/Numero>/i);
-    const renglonMatch = match.match(/<Renglon>([^<]*)<\/Renglon>/i);
-    const articuloIdMatch = match.match(/<ArticuloId>([^<]*)<\/ArticuloId>/i);
-    const articuloEmpresaMatch = match.match(/<ArticuloEmpresa>([^<]*)<\/ArticuloEmpresa>/i);
-    const articuloNombreMatch = match.match(/<ArticuloNombre>([^<]*)<\/ArticuloNombre>/i);
-    const cantPedidaMatch = match.match(/<CantidadPedida>([^<]*)<\/CantidadPedida>/i);
-    const cantFacturadaMatch = match.match(/<CantidadFacturada>([^<]*)<\/CantidadFacturada>/i);
-    const cantEntregadaMatch = match.match(/<CantidadEntregada>([^<]*)<\/CantidadEntregada>/i);
-    const precioNetoMatch = match.match(/<PrecioNeto_SI>([^<]*)<\/PrecioNeto_SI>/i);
-    const unidadMedidaMatch = match.match(/<UnidadDeMedida>([^<]*)<\/UnidadDeMedida>/i);
+    // Extraer campos usando regex (con nombres exactos del XML)
+    const divMatch = match.match(/<Division>([^<]*)<\/Division>/);
+    const tipoMatch = match.match(/<Tipo>([^<]*)<\/Tipo>/);
+    const numMatch = match.match(/<Numero>([^<]*)<\/Numero>/);
+    const renglonMatch = match.match(/<Renglon>([^<]*)<\/Renglon>/);
+    const articuloIdMatch = match.match(/<ArticuloId>([^<]*)<\/ArticuloId>/);
+    const articuloEmpresaMatch = match.match(/<ArticuloEmpresa>([^<]*)<\/ArticuloEmpresa>/);
+    const articuloNombreMatch = match.match(/<ArticuloNombre>([^<]*)<\/ArticuloNombre>/);
+    const cantPedidaMatch = match.match(/<CantidadPedida>([^<]*)<\/CantidadPedida>/);
+    const cantFacturadaMatch = match.match(/<CantidadFacturada>([^<]*)<\/CantidadFacturada>/);
+    const cantEntregadaMatch = match.match(/<CantidadEntregada>([^<]*)<\/CantidadEntregada>/);
+    const precioNetoMatch = match.match(/<PrecioNeto_SI>([^<]*)<\/PrecioNeto_SI>/);
+    const unidadMedidaMatch = match.match(/<UnidadDeMedida>([^<]*)<\/UnidadDeMedida>/);
+    const fechaEntregaMatch = match.match(/<FechaEntrega>([^<]*)<\/FechaEntrega>/);
+    const clienteIdMatch = match.match(/<ClienteId>([^<]*)<\/ClienteId>/);
 
+    // Asignar valores (usando nombres en minúscula para coincidir con la BD)
     if (divMatch) item.division = parseInt(divMatch[1]);
     if (tipoMatch) item.tipo = tipoMatch[1];
     if (numMatch) item.numero = parseInt(numMatch[1]);
@@ -141,6 +141,8 @@ function extraerItemsDesdeXML(xml: string, division: number, tipo: string, numer
     if (cantEntregadaMatch) item.cantidad_entregada = parseFloat(cantEntregadaMatch[1]);
     if (precioNetoMatch) item.precio_neto = parseFloat(precioNetoMatch[1]);
     if (unidadMedidaMatch) item.unidad_medida = unidadMedidaMatch[1];
+    if (fechaEntregaMatch) item.fecha_entrega = fechaEntregaMatch[1];
+    if (clienteIdMatch) item.cliente_id = parseInt(clienteIdMatch[1]);
 
     // 🔥 Solo agregar si coincide con la cabecera que estamos procesando
     if (item.division === division && item.tipo === tipo && item.numero === numero) {
@@ -178,6 +180,8 @@ export async function guardarDetalleEnNeon(items: any[]) {
           cantidad_entregada,
           precio_neto,
           unidad_medida,
+          fecha_entrega,
+          cliente_id,
           ultima_sincronizacion
         ) VALUES (
           ${item.division},
@@ -192,6 +196,8 @@ export async function guardarDetalleEnNeon(items: any[]) {
           ${item.cantidad_entregada || 0},
           ${item.precio_neto || 0},
           ${item.unidad_medida || null},
+          ${item.fecha_entrega || null},
+          ${item.cliente_id || null},
           NOW()
         )
         ON CONFLICT (division, tipo, numero, renglon) DO UPDATE SET
@@ -203,6 +209,8 @@ export async function guardarDetalleEnNeon(items: any[]) {
           cantidad_entregada = EXCLUDED.cantidad_entregada,
           precio_neto = EXCLUDED.precio_neto,
           unidad_medida = EXCLUDED.unidad_medida,
+          fecha_entrega = EXCLUDED.fecha_entrega,
+          cliente_id = EXCLUDED.cliente_id,
           ultima_sincronizacion = NOW()
       `;
       contador++;
