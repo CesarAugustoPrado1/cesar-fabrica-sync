@@ -1,4 +1,3 @@
-console.log('🔍 API pedido/[id] llamada con ID:', id);
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 
@@ -8,6 +7,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    console.log('🔍 API pedido/[id] llamada con ID:', id);
 
     // Si el id contiene guiones, asumimos formato "division-tipo-numero"
     let division: number | null = null;
@@ -34,6 +34,7 @@ export async function GET(
       const soloNumero = parseInt(id);
       if (!isNaN(soloNumero)) {
         numero = soloNumero;
+        console.log('🔎 Buscando pedido con numero:', numero);
         // Buscar por número sin division/tipo
         const pedidos = await sql`
           SELECT 
@@ -63,6 +64,8 @@ export async function GET(
           WHERE c.numero = ${numero}
           ORDER BY c.division, c.tipo
         `;
+
+        console.log('📊 Pedidos encontrados (solo número):', pedidos.length);
 
         if (pedidos.length === 0) {
           return NextResponse.json(
@@ -108,6 +111,8 @@ export async function GET(
             AND d.numero = ${numero}
           ORDER BY d.renglon ASC
         `;
+
+        console.log('📦 Detalles encontrados:', detalles.length);
 
         const response = {
           pedido: {
@@ -161,6 +166,7 @@ export async function GET(
         return NextResponse.json(response);
       }
 
+      // Si no se pudo parsear como número, devolvemos error
       return NextResponse.json(
         { error: 'Formato inválido. Use "division-tipo-numero" o solo el número' },
         { status: 400 }
@@ -169,6 +175,8 @@ export async function GET(
 
     // --- Caso formato completo (division-tipo-numero) ---
     // Ya tenemos division, tipo, numero definidos
+    console.log('🔎 Buscando pedido con division, tipo, numero:', division, tipo, numero);
+
     const cabeceraResult = await sql`
       SELECT 
         c.*,
@@ -181,6 +189,8 @@ export async function GET(
         AND c.tipo = ${tipo}
         AND c.numero = ${numero}
     `;
+
+    console.log('📊 Cabecera encontrada (formato completo):', cabeceraResult.length);
 
     if (cabeceraResult.length === 0) {
       return NextResponse.json(
@@ -204,6 +214,8 @@ export async function GET(
         AND d.numero = ${numero}
       ORDER BY d.renglon ASC
     `;
+
+    console.log('📦 Detalles encontrados (formato completo):', detalles.length);
 
     const response = {
       pedido: {
@@ -257,7 +269,7 @@ export async function GET(
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Error en API:', error);
+    console.error('❌ Error en API:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },
       { status: 500 }
