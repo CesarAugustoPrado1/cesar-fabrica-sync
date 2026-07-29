@@ -268,11 +268,16 @@ export async function GET(
 
     return NextResponse.json(response);
 
-  } catch (error) {
-    console.error('❌ Error en API:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
-  }
+  } } catch (error) {
+  console.error('❌ Error en API:', error);
+  // Devolver el error detallado para depuración
+  return NextResponse.json(
+    { 
+      error: 'Error interno del servidor',
+      detalle: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    },
+    { status: 500 }
+  );
+}
 }
