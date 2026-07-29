@@ -8,37 +8,70 @@ export async function GET(
   try {
     const { id } = await params;
 
-    // Validar formato "division-tipo-numero"
+    let division: number | null = null;
+    let tipo: string | null = null;
+    let numero: number | null = null;
+
+    // Intentar parsear formato "division-tipo-numero"
     const partes = id.split('-');
-    if (partes.length !== 3) {
-      return NextResponse.json(
-        { error: 'Formato inválido. Use "division-tipo-numero"' },
-        { status: 400 }
-      );
-    }
-    const [divisionStr, tipo, numeroStr] = partes;
-    const division = parseInt(divisionStr);
-    const numero = parseInt(numeroStr);
-    if (isNaN(division) || isNaN(numero)) {
-      return NextResponse.json(
-        { error: 'División y número deben ser números' },
-        { status: 400 }
-      );
+    if (partes.length === 3) {
+      const [divisionStr, tipoStr, numeroStr] = partes;
+      const div = parseInt(divisionStr);
+      const num = parseInt(numeroStr);
+      if (!isNaN(div) && !isNaN(num)) {
+        division = div;
+        tipo = tipoStr;
+        numero = num;
+      }
     }
 
-    // 1. Cabecera + cliente
-    const cabeceraResult = await sql`
-      SELECT 
-        c.*,
-        cl.nombre as cliente_nombre,
-        cl.telefono as cliente_telefono,
-        cl.email as cliente_email
-      FROM notas_pedido_cabecera c
-      LEFT JOIN clientes cl ON c.cliente_id = cl.id
-      WHERE c.division = ${division}
-        AND c.tipo = ${tipo}
-        AND c.numero = ${numero}
-    `;
+    // Si no se pudo parsear como formato compuesto, asumir que es solo el número
+    if (division === null || tipo === null || numero === null) {
+      const num = parseInt(id);
+      if (isNaN(num)) {
+        return NextResponse.json(
+          { error: 'Formato inválido. Use "division-tipo-numero" o solo el número' },
+          { status: 400 }
+        );
+      }
+      numero = num;
+    }
+
+    // Construir consulta según lo que tengamos
+    let cabeceraResult;
+    if (division !== null && tipo !== null && numero !== null) {
+      // Búsqueda por clave compuesta
+      cabeceraResult = await sql`
+        SELECT 
+          c.*,
+          cl.nombre as cliente_nombre,
+          cl.telefono as cliente_telefono,
+          cl.email as cliente_email
+        FROM notas_pedido_cabecera c
+        LEFT JOIN clientes cl ON c.cliente_id = cl.id
+        WHERE c.division = ${division}
+          AND c.tipo = ${tipo}
+          AND c.numero = ${numero}
+      `;
+    } else if (numero !== null) {
+      // Búsqueda solo por número (puede haber múltiples, tomamos el primero)
+      cabeceraResult = await sql`
+        SELECT 
+          c.*,
+          cl.nombre as cliente_nombre,
+          cl.telefono as cliente_telefono,
+          cl.email as cliente_email
+        FROM notas_pedido_cabecera c
+        LEFT JOIN clientes cl ON c.cliente_id = cl.id
+        WHERE c.numero = ${numero}
+        LIMIT 1
+      `;
+    } else {
+      return NextResponse.json(
+        { error: 'Parámetros inválidos' },
+        { status: 400 }
+      );
+    }
 
     if (cabeceraResult.length === 0) {
       return NextResponse.json(
@@ -58,9 +91,9 @@ export async function GET(
         p.precio as producto_precio
       FROM notas_pedido_detalle d
       LEFT JOIN productos p ON d.articulo_id = p.id
-      WHERE d.division = ${division}
-        AND d.tipo = ${tipo}
-        AND d.numero = ${numero}
+      WHERE d.division = ${cabecera.division}
+        AND d.tipo = ${cabecera.tipo}
+        AND d.numero = ${cabecera.numero}
       ORDER BY d.renglon ASC
     `;
 
