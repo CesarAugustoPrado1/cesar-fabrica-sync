@@ -1,3 +1,4 @@
+console.log('🔍 API pedido/[id] llamada con ID:', id);
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
 
