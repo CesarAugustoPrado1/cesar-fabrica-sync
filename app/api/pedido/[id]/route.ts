@@ -3,10 +3,10 @@ import { sql } from '@/lib/db';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     // Validar formato "division-tipo-numero"
     const partes = id.split('-');
@@ -26,7 +26,7 @@ export async function GET(
       );
     }
 
-    // 1. Obtener cabecera + cliente
+    // 1. Cabecera + cliente
     const cabeceraResult = await sql`
       SELECT 
         c.*,
@@ -49,7 +49,7 @@ export async function GET(
 
     const cabecera = cabeceraResult[0];
 
-    // 2. Obtener detalles con productos
+    // 2. Detalles con productos
     const detalles = await sql`
       SELECT 
         d.*,
@@ -64,7 +64,7 @@ export async function GET(
       ORDER BY d.renglon ASC
     `;
 
-    // 3. Armar respuesta
+    // 3. Respuesta estructurada
     const response = {
       pedido: {
         cabecera: {
