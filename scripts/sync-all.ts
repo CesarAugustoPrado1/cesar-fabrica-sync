@@ -6,5 +6,5 @@ import { syncNotasPedidoDetalle } from '../lib/sync-notas-pedido-detalle';
 export async function syncAll() {
   await syncProductos();
   await syncClientes();
-  await syncNotasDePedidoDetalle();
+  await syncNotasPedidoDetalle();
 }
