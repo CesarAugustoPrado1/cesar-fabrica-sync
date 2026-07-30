@@ -1,9 +1,6 @@
-import { syncProductos } from './sync-productos';
-import { syncClientes } from './sync-clientes';
-import { syncNotasDePedido } from './sync-notas-pedido';
+import { runFullSync } from './sync/runner';
+import { syncTasks } from './sync/tasks';
 
 export async function syncAll() {
-    await syncProductos();
-    await syncClientes();
-    await syncNotasDePedido();
+  return runFullSync(syncTasks);
 }

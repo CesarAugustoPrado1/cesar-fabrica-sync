@@ -1,4 +1,5 @@
-import { syncGenerico, parseFecha, parseBooleano, parseNumero } from './erp-common';
+import { syncGenerico, parseFecha } from './erp-common';
+import type { SyncResult } from './sync/runner';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioSTOCArticulo.asmx';
 
@@ -44,9 +45,9 @@ const atributos = [
   'Clasificacion16ArticulosNombre',
 ];
 
-export async function syncProductos() {
+export async function syncProductos(): Promise<SyncResult> {
   console.log('🔄 Iniciando sincronización de productos...');
-  await syncGenerico({
+  return syncGenerico({
     nombre: 'productos',
     url: SOAP_URL,
     atributos: atributos,

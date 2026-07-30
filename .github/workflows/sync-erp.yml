@@ -14,6 +14,9 @@ jobs:
         with:
           node-version: '20'
       - run: npm install
-      - run: npx tsx scripts/sync-erp.ts
+      - run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - run: npm run sync
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

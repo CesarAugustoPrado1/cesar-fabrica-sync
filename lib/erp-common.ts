@@ -19,16 +19,17 @@ export function parseNumero(valor: string | null): number | null {
   return isNaN(num) ? null : num;
 }
 
-export function getAttr(node: any, attrName: string): string | null {
-  if (!node || !node.$) return null;
-  return node.$[attrName] || null;
+export function getAttr(node: Record<string, unknown> | null | undefined, attrName: string): string | null {
+  if (!node || typeof node !== 'object' || !('$' in node)) return null;
+  const attrs = node.$ as Record<string, unknown> | undefined;
+  return typeof attrs?.[attrName] === 'string' ? String(attrs[attrName]) : null;
 }
 
 // Versión mejorada con logs internos
-export function findAllItems(obj: any, itemName: string, idAttr: string): any[] {
-  const results: any[] = [];
-  const stack = [obj];
-  const visited = new Set();
+export function findAllItems(obj: unknown, itemName: string, idAttr: string): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
+  const stack: unknown[] = [obj];
+  const visited = new Set<string>();
 
   while (stack.length > 0) {
     const current = stack.pop();
@@ -38,20 +39,23 @@ export function findAllItems(obj: any, itemName: string, idAttr: string): any[] 
     if (visited.has(key)) continue;
     visited.add(key);
 
+    const currentRecord = current as Record<string, unknown>;
+
     // 1. Si el objeto tiene el id como atributo, es un item
-    if (current.$ && current.$[idAttr] !== undefined) {
-      results.push(current);
+    if (currentRecord.$ && typeof currentRecord.$ === 'object' && (currentRecord.$ as Record<string, unknown>)[idAttr] !== undefined) {
+      results.push(currentRecord);
       continue;
     }
 
     // 2. Si el objeto tiene una clave que termina en itemName (ej. 'Cliente', 'tns:Cliente')
-    for (const k of Object.keys(current)) {
+    for (const k of Object.keys(currentRecord)) {
       if (k.endsWith(itemName)) {
-        const items = Array.isArray(current[k]) ? current[k] : [current[k]];
+        const items = Array.isArray(currentRecord[k]) ? currentRecord[k] : [currentRecord[k]];
         for (const it of items) {
           if (it && typeof it === 'object') {
-            if ((it.$ && it.$[idAttr] !== undefined) || it[idAttr] !== undefined) {
-              results.push(it);
+            const record = it as Record<string, unknown>;
+            if ((record.$ && typeof record.$ === 'object' && (record.$ as Record<string, unknown>)[idAttr] !== undefined) || record[idAttr] !== undefined) {
+              results.push(record);
             } else {
               stack.push(it);
             }
@@ -61,9 +65,9 @@ export function findAllItems(obj: any, itemName: string, idAttr: string): any[] 
     }
 
     // 3. Buscar en propiedades hijas (excepto las ya procesadas)
-    for (const k of Object.keys(current)) {
-      if (k !== itemName && current[k] && typeof current[k] === 'object') {
-        stack.push(current[k]);
+    for (const k of Object.keys(currentRecord)) {
+      if (k !== itemName && currentRecord[k] && typeof currentRecord[k] === 'object') {
+        stack.push(currentRecord[k]);
       }
     }
   }
@@ -97,7 +101,7 @@ export async function syncGenerico({
   idAttr: string;
   tabla: string;
   idCol: string;
-  mapear: (item: any) => any;
+  mapear: (item: Record<string, unknown>) => Record<string, unknown>;
   limite?: number;
 }) {
   try {
@@ -171,7 +175,7 @@ export async function syncGenerico({
 
     let procesados = 0;
     let errores = 0;
-    const lote = [];
+    const lote: Record<string, unknown>[] = [];
 
     for (const item of items) {
       try {
@@ -225,6 +229,7 @@ export async function syncGenerico({
     console.log(`   Errores: ${errores}`);
     console.log(`✅ Sincronización de ${nombre} completada`);
 
+    return { procesados, errores };
   } catch (error) {
     console.error(`❌ Error en sync${nombre.charAt(0).toUpperCase() + nombre.slice(1)}:`, error);
     throw error;

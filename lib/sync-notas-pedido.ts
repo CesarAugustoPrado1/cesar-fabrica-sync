@@ -1,5 +1,6 @@
 // lib/sync-notas-pedido.ts
 import { sql } from './db';
+import type { SyncResult } from './sync/runner';
 
 const ERP_URL = "http://wspirkastone.pypcloud.net:1881/ServicioVENTNotaDePedido.asmx";
 const SOAP_ACTION = "http://plataforma.net.ar/ObtenerNotasDePedido";
@@ -7,7 +8,7 @@ const SOAP_ACTION = "http://plataforma.net.ar/ObtenerNotasDePedido";
 // =====================================================
 // FUNCIÓN PRINCIPAL: Sincronizar notas de pedido (cabeceras)
 // =====================================================
-export async function syncNotasDePedido() {
+export async function syncNotasDePedido(): Promise<SyncResult> {
   console.log('🔄 Iniciando sincronización de notas de pedido (cabeceras)...');
 
   try {

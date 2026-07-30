@@ -1,4 +1,5 @@
 import { syncGenerico, parseFecha, parseBooleano } from './erp-common';
+import type { SyncResult } from './sync/runner';
 
 const SOAP_URL = 'http://wspirkastone.pypcloud.net:1881/ServicioCCOCliente.asmx';
 
@@ -48,9 +49,9 @@ const atributos = [
   'FechaUltActualizacion'
 ];
 
-export async function syncClientes() {
+export async function syncClientes(): Promise<SyncResult> {
   console.log('🔄 Iniciando sincronización de clientes...');
-  await syncGenerico({
+  return syncGenerico({
     nombre: 'clientes',
     url: SOAP_URL,
     atributos: atributos,

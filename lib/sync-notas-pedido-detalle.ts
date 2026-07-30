@@ -1,10 +1,11 @@
 // lib/sync-notas-pedido-detalle.ts
 import { sql } from './db';
+import type { SyncResult } from './sync/runner';
 
 // =====================================================
 // 1. FUNCIÓN PRINCIPAL: Sincronizar detalle de notas de pedido
 // =====================================================
-export async function syncNotasPedidoDetalle() {
+export async function syncNotasPedidoDetalle(): Promise<SyncResult> {
   console.log('🔄 Iniciando sincronización de detalle de notas de pedido...');
 
   // 🔥 CAMBIO IMPORTANTE: Usar "cliente_id" en lugar de "clienteid"
@@ -17,7 +18,7 @@ export async function syncNotasPedidoDetalle() {
 
   if (!cabeceras || cabeceras.length === 0) {
     console.log('⚠️ No se encontraron cabeceras con cliente_id.');
-    return;
+    return { procesados: 0, errores: 0 };
   }
 
   console.log(`📋 ${cabeceras.length} cabeceras encontradas.`);
@@ -39,6 +40,7 @@ export async function syncNotasPedidoDetalle() {
   }
 
   console.log(`✅ Sincronización de detalle completada. Total ítems: ${totalItems}, Notas con error: ${notasConError}`);
+  return { procesados: totalItems, errores: notasConError };
 }
 
 // =====================================================
